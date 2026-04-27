@@ -103,6 +103,17 @@ main {
   border: 1px solid var(--glass-border);
 }
 
+.product-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-sm);
+}
+
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0; }
 
 .stat-card {
@@ -179,3 +190,10 @@ th, td { padding: 14px 12px; text-align: right; border-bottom: 1px solid var(--g
 .list-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--glass-border); }
 .empty-state { text-align: center; padding: 50px 20px; opacity: 0.55; }
 .empty-state .emoji { font-size: 52px; margin-bottom: 12px; }
+
+.worker-summary {
+  background: var(--card-bg);
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+}

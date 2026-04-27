@@ -22,5 +22,7 @@ export function initTelegram() {
     });
   }
 
+  // تخزين مرجع عام لتسهيل الوصول
+  window.tg = tg;
   return tg;
 }

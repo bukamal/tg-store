@@ -7,14 +7,17 @@ export default async function handler(req, res) {
   if (body.message?.text?.startsWith('/start')) {
     const user = body.message.from;
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
 
     await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: user.id,
-        text: 'مرحباً! افتح التطبيق المصغر من زر القائمة.'
+        text: 'مرحباً! افتح التطبيق المصغّر من زر القائمة.'
       })
     });
   }
