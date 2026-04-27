@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>محاسبة المتجر</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <nav>
+      <button id="nav-products">الأصناف</button>
+      <button id="nav-sell">بيع</button>
+      <button id="nav-history">المبيعات</button>
+      <button id="nav-analytics">تحليلات</button>
+      <button id="nav-purchases">المشتريات</button>
+      <button id="nav-customers">العملاء</button>
+      <button id="nav-cash">الصندوق</button>
+      <button id="nav-expenses">المصروفات</button>
+      <button id="nav-alerts">تنبيهات</button>
+    </nav>
+    <main id="view"></main>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
