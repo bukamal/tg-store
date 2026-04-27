@@ -32,7 +32,8 @@ const i18n = {
     noData: 'لا توجد بيانات',
     confirmDelete: 'هل أنت متأكد من الحذف؟',
     stock: 'المخزون',
-    price: 'السعر',
+    purchasePrice: 'سعر الشراء',
+    sellingPrice: 'سعر البيع',
     quantity: 'الكمية',
     minAlert: 'حد التنبيه',
     total: 'الإجمالي',
@@ -90,9 +91,7 @@ function formatCurrency(amountSYP) {
 }
 
 async function logActivity(action, details = '') {
-  try {
-    await supabase.rpc('add_activity', { action, details });
-  } catch (e) { console.warn('Activity log error:', e); }
+  try { await supabase.rpc('add_activity', { action, details }); } catch (e) { console.warn('Activity log error:', e); }
 }
 
 function exportToCSV(filename, headers, rows) {
@@ -134,6 +133,8 @@ function navigateTo(viewName, params) {
     case 'edit-product': showEditProductForm(params?.productId); break;
     case 'add-expense': showAddExpenseForm(); break;
     case 'add-cash-transaction': showAddCashTransactionForm(params?.type); break;
+    case 'add-purchase': showAddPurchaseForm(); break;
+    case 'add-customer': showAddCustomerForm(); break;
     default: console.warn('Unknown view:', viewName);
   }
 }
@@ -158,6 +159,8 @@ function goBack() {
     case 'edit-product': showEditProductForm(window.currentViewParams?.productId); break;
     case 'add-expense': showAddExpenseForm(); break;
     case 'add-cash-transaction': showAddCashTransactionForm(window.currentViewParams?.type); break;
+    case 'add-purchase': showAddPurchaseForm(); break;
+    case 'add-customer': showAddCustomerForm(); break;
     default: navigateTo('products');
   }
 }
@@ -183,7 +186,10 @@ async function showProducts() {
   window.currentRefreshFunction = showProducts;
   tg.MainButton.hide();
   applyBackButton();
-  const { data: products } = await supabase.from('products').select('id, name, variants(id, attributes, price, quantity, min_quantity)').order('name');
+  const { data: products } = await supabase
+    .from('products')
+    .select('id, name, variants(id, attributes, purchase_price, selling_price, quantity, min_quantity)')
+    .order('name');
   let html = `<h2>${t('products')}</h2><input id="search-products" type="text" placeholder="${t('search')}"/><div id="products-list">`;
   if (!products?.length) html += `<p>${t('noData')}</p>`;
   else products.forEach(p => {
@@ -191,8 +197,9 @@ async function showProducts() {
     p.variants?.forEach(v => {
       const attrs = Object.entries(v.attributes).map(([k,val]) => `${sanitize(k)}:${sanitize(val)}`).join(' / ');
       const warn = (v.min_quantity > 0 && v.quantity <= v.min_quantity) ? ' ⚠️' : '';
-      html += `<li>${attrs} - ${formatCurrency(v.price)} (${v.quantity}) ${t('minAlert')}: ${v.min_quantity}${warn} <button onclick="window.deleteVariant(${v.id})">${t('delete')}</button></li>`;
+      html += `<li>${attrs} - شراء: ${formatCurrency(v.purchase_price)} / بيع: ${formatCurrency(v.selling_price)} (${v.quantity}) ${t('minAlert')}: ${v.min_quantity}${warn} <button onclick="window.deleteVariant(${v.id})">${t('delete')}</button></li>`;
     });
+    if (!p.variants?.length) html += `<li>${t('noData')}</li>`;
     html += '</ul></div>';
   });
   html += `</div><button id="add-product-btn">+ ${t('addProduct')}</button><button id="export-stock-btn">📥 ${t('exportCSV')}</button>`;
@@ -204,7 +211,6 @@ async function showProducts() {
   document.getElementById('add-product-btn').addEventListener('click', () => navigateTo('add-product'));
   document.getElementById('export-stock-btn').addEventListener('click', exportStockCSV);
 }
-
 window.deleteProduct = async id => {
   if (!confirm(t('confirmDelete'))) return;
   try { await supabase.from('products').delete().eq('id', id); await logActivity('delete_product', `ID:${id}`); showToast(t('deleted')); showProducts(); } catch (err) { showToast(err.message, true); }
@@ -215,14 +221,14 @@ window.deleteVariant = async id => {
 };
 
 async function exportStockCSV() {
-  const { data: products } = await supabase.from('products').select('name, variants(attributes, price, quantity, min_quantity)');
-  const headers = [t('products'), 'المتغير', t('price'), t('quantity'), t('minAlert')];
+  const { data: products } = await supabase.from('products').select('name, variants(attributes, purchase_price, selling_price, quantity, min_quantity)');
+  const headers = [t('products'), 'المتغير', 'سعر الشراء', 'سعر البيع', t('quantity'), t('minAlert')];
   const rows = [];
-  products.forEach(p => p.variants?.forEach(v => rows.push([p.name, Object.entries(v.attributes).map(([k,val])=>`${k}:${val}`).join(' / '), v.price, v.quantity, v.min_quantity])));
+  products.forEach(p => p.variants?.forEach(v => rows.push([p.name, Object.entries(v.attributes).map(([k,val])=>`${k}:${val}`).join(' / '), v.purchase_price, v.selling_price, v.quantity, v.min_quantity])));
   exportToCSV('المخزون.csv', headers, rows);
 }
 
-// ---------- Add/Edit Product ----------
+// ---------- Add Product ----------
 async function showAddProductForm() {
   tg.BackButton.show(); tg.MainButton.setText(t('save')); tg.MainButton.show(); tg.MainButton.onClick(saveProductWithVariants);
   view.innerHTML = `<h3>${t('addProduct')}</h3><input id="pname" placeholder="اسم الصنف"/><div id="variants-container"></div><button id="add-variant-row">+ إضافة متغير</button>`;
@@ -231,7 +237,14 @@ async function showAddProductForm() {
 }
 function addVariantRow() {
   const row = document.createElement('div'); row.className = 'variant-row';
-  row.innerHTML = `<input placeholder="خصائص (size:M, color:أبيض)" class="v-attrs"/><input type="number" placeholder="السعر" class="v-price"/><input type="number" placeholder="الكمية" class="v-qty"/><input type="number" placeholder="حد التنبيه" class="v-min" value="0"/><button class="remove-variant">X</button>`;
+  row.innerHTML = `
+    <input placeholder="خصائص (size:M, color:أبيض)" class="v-attrs"/>
+    <input type="number" placeholder="سعر الشراء" class="v-purchase-price"/>
+    <input type="number" placeholder="سعر البيع" class="v-selling-price"/>
+    <input type="number" placeholder="الكمية" class="v-qty"/>
+    <input type="number" placeholder="حد التنبيه" class="v-min" value="0"/>
+    <button class="remove-variant">X</button>
+  `;
   row.querySelector('.remove-variant').addEventListener('click', () => row.remove());
   document.getElementById('variants-container').appendChild(row);
 }
@@ -242,15 +255,16 @@ async function saveProductWithVariants() {
   const variants = []; let hasError = false;
   rows.forEach(row => {
     const attrsStr = row.querySelector('.v-attrs').value.trim();
-    const price = parseFloat(row.querySelector('.v-price').value);
+    const purchasePrice = parseFloat(row.querySelector('.v-purchase-price').value);
+    const sellingPrice = parseFloat(row.querySelector('.v-selling-price').value);
     const qty = parseInt(row.querySelector('.v-qty').value);
     const minQty = parseInt(row.querySelector('.v-min').value) || 0;
-    if (!attrsStr || isNaN(price) || price <= 0 || isNaN(qty) || qty < 0) { hasError = true; return; }
+    if (!attrsStr || isNaN(purchasePrice) || purchasePrice < 0 || isNaN(sellingPrice) || sellingPrice < 0 || isNaN(qty) || qty < 0) { hasError = true; return; }
     const attrs = {}; attrsStr.split(',').forEach(pair => { const [k,v] = pair.split(':').map(s=>s.trim()); if(k&&v) attrs[k]=v; });
     if (!Object.keys(attrs).length) { hasError = true; return; }
-    variants.push({ attributes: attrs, price, quantity: qty, min_quantity: minQty });
+    variants.push({ attributes: attrs, purchase_price: purchasePrice, selling_price: sellingPrice, quantity: qty, min_quantity: minQty });
   });
-  if (hasError || !variants.length) { showToast(t('fillAllFields'), true); return; }
+  if (hasError || !variants.length) { showToast(t('fillAllFields') + ' (تأكد من الخصائص والأسعار)', true); return; }
   tg.MainButton.disable();
   try {
     const { data: product, error } = await supabase.from('products').insert({ name, user_id: currentUserId }).select().single();
@@ -263,6 +277,7 @@ async function saveProductWithVariants() {
   } catch (err) { showToast(err.message, true); } finally { tg.MainButton.enable(); }
 }
 
+// ---------- Edit Product ----------
 async function showEditProductForm(productId) {
   tg.BackButton.show(); tg.MainButton.setText(t('save')); tg.MainButton.show(); tg.MainButton.onClick(() => updateProduct(productId));
   const { data: product } = await supabase.from('products').select('*, variants(*)').eq('id', productId).single();
@@ -270,7 +285,14 @@ async function showEditProductForm(productId) {
   const container = document.getElementById('variants-container');
   product.variants.forEach(v => {
     const row = document.createElement('div'); row.className = 'variant-row';
-    row.innerHTML = `<input value="${Object.entries(v.attributes).map(([k,val])=>`${k}:${val}`).join(', ')}" class="v-attrs"/><input type="number" value="${v.price}" class="v-price"/><input type="number" value="${v.quantity}" class="v-qty"/><input type="number" value="${v.min_quantity}" class="v-min"/><button class="remove-variant">X</button>`;
+    row.innerHTML = `
+      <input value="${Object.entries(v.attributes).map(([k,val])=>`${k}:${val}`).join(', ')}" class="v-attrs"/>
+      <input type="number" value="${v.purchase_price}" class="v-purchase-price"/>
+      <input type="number" value="${v.selling_price}" class="v-selling-price"/>
+      <input type="number" value="${v.quantity}" class="v-qty"/>
+      <input type="number" value="${v.min_quantity}" class="v-min"/>
+      <button class="remove-variant">X</button>
+    `;
     row.querySelector('.remove-variant').addEventListener('click', () => row.remove());
     container.appendChild(row);
   });
@@ -282,12 +304,13 @@ async function updateProduct(productId) {
   const variants = [];
   rows.forEach(row => {
     const attrsStr = row.querySelector('.v-attrs').value.trim();
-    const price = parseFloat(row.querySelector('.v-price').value);
+    const purchasePrice = parseFloat(row.querySelector('.v-purchase-price').value);
+    const sellingPrice = parseFloat(row.querySelector('.v-selling-price').value);
     const qty = parseInt(row.querySelector('.v-qty').value);
     const minQty = parseInt(row.querySelector('.v-min').value) || 0;
-    if (!attrsStr || isNaN(price) || isNaN(qty)) return;
+    if (!attrsStr || isNaN(purchasePrice) || isNaN(sellingPrice) || isNaN(qty)) return;
     const attrs = {}; attrsStr.split(',').forEach(pair => { const [k,v] = pair.split(':').map(s=>s.trim()); if(k&&v) attrs[k]=v; });
-    variants.push({ attributes: attrs, price, quantity: qty, min_quantity: minQty });
+    variants.push({ attributes: attrs, purchase_price: purchasePrice, selling_price: sellingPrice, quantity: qty, min_quantity: minQty });
   });
   if (!variants.length) { showToast(t('fillAllFields'), true); return; }
   tg.MainButton.disable();
@@ -306,11 +329,15 @@ async function showSellForm() {
   window.currentRefreshFunction = showSellForm;
   tg.MainButton.setText('إتمام البيع'); tg.MainButton.show(); tg.MainButton.onClick(checkout);
   applyBackButton();
-  const { data: products } = await supabase.from('products').select('id, name, variants!inner(id, attributes, price, quantity)').gt('variants.quantity', 0).order('name');
+  const { data: products } = await supabase
+    .from('products')
+    .select('id, name, variants!inner(id, attributes, selling_price, quantity)')
+    .gt('variants.quantity', 0)
+    .order('name');
   let prodOptions = '';
   products.forEach(p => p.variants.forEach(v => {
     const attrs = Object.entries(v.attributes).map(([k,val])=>`${k}:${val}`).join('/');
-    prodOptions += `<option value="${p.id}_${v.id}">${p.name} - ${attrs} (${formatCurrency(v.price)})</option>`;
+    prodOptions += `<option value="${p.id}_${v.id}">${p.name} - ${attrs} (${formatCurrency(v.selling_price)})</option>`;
   }));
   const { data: customers } = await supabase.from('customers').select('id, name').order('name');
   let custOptions = `<option value="">${t('cashCustomer')}</option>`;
@@ -342,12 +369,16 @@ async function addToCart() {
   const [productId, variantId] = select.value.split('_');
   const qty = parseInt(document.getElementById('cart-qty').value);
   if (isNaN(qty) || qty <= 0) { showToast(t('quantityInsufficient'), true); return; }
-  const { data: variant } = await supabase.from('variants').select('id, price, attributes, quantity, products(name)').eq('id', variantId).single();
+  const { data: variant } = await supabase
+    .from('variants')
+    .select('id, selling_price, attributes, quantity, products(name)')
+    .eq('id', variantId).single();
   if (!variant || variant.quantity < qty) { showToast(t('quantityInsufficient'), true); return; }
   const existing = cart.find(item => item.variantId === variantId);
   if (existing) existing.quantity += qty;
-  else cart.push({ productId, variantId, name: variant.products.name, attributes: variant.attributes, price: variant.price, quantity: qty, max: variant.quantity });
-  renderCart(); showToast('تمت الإضافة');
+  else cart.push({ productId, variantId, name: variant.products.name, attributes: variant.attributes, price: variant.selling_price, quantity: qty, max: variant.quantity });
+  renderCart();
+  showToast('تمت الإضافة');
 }
 
 function renderCart() {
@@ -382,33 +413,68 @@ async function checkout() {
     const grand = total - discount + tax;
     const customerId = document.getElementById('customer-select')?.value || null;
     const { data: order, error } = await supabase.from('orders').insert({
-      user_id: currentUserId, total_amount: total, discount, tax, paid_amount: paid, customer_id: customerId || null
+      user_id: currentUserId,
+      total_amount: total,
+      discount,
+      tax,
+      paid_amount: paid,
+      customer_id: customerId || null
     }).select().single();
     if (error) throw error;
-    const itemsData = cart.map(item => ({ order_id: order.id, product_id: item.productId, variant_id: item.variantId, quantity: item.quantity, unit_price: item.price }));
+    const itemsData = cart.map(item => ({
+      order_id: order.id,
+      product_id: item.productId,
+      variant_id: item.variantId,
+      quantity: item.quantity,
+      unit_price: item.price
+    }));
     const { error: itemsError } = await supabase.from('order_items').insert(itemsData);
     if (itemsError) { await supabase.from('orders').delete().eq('id', order.id); throw itemsError; }
     for (const item of cart) {
-      const { data: variant } = await supabase.from('variants').select('quantity, min_quantity, attributes, products(name)').eq('id', item.variantId).single();
+      const { data: variant } = await supabase
+        .from('variants')
+        .select('quantity, min_quantity, attributes, products(name)')
+        .eq('id', item.variantId).single();
       if (!variant) continue;
       const newQty = variant.quantity - item.quantity;
       await supabase.from('variants').update({ quantity: newQty }).eq('id', item.variantId);
       if (variant.min_quantity > 0 && newQty <= variant.min_quantity) {
         fetch('/api/stock-alert', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ variantName: variant.products.name + ' ' + Object.entries(variant.attributes).map(([k,v])=>`${k}:${v}`).join('/'), quantity: newQty, minQuantity: variant.min_quantity })
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            variantName: variant.products.name + ' ' + Object.entries(variant.attributes).map(([k,v])=>`${k}:${v}`).join('/'),
+            quantity: newQty,
+            minQuantity: variant.min_quantity
+          })
         }).catch(console.error);
       }
     }
     await recordCashTransaction('deposit', paid, 'sale', order.id, `بيع #${order.id}`);
     await logActivity('sale', `Order #${order.id}, Total: ${grand}`);
+    const invoiceItems = cart.map(i => ({
+      name: i.name,
+      attrs: Object.entries(i.attributes).map(([k,v])=>`${k}:${v}`).join('/'),
+      quantity: i.quantity,
+      unit_price: i.price
+    }));
+    const customerName = customerId
+      ? (await supabase.from('customers').select('name').eq('id', customerId).single())?.data?.name
+      : null;
     showToast(`تم البيع! رقم الإيصال: ${order.id}`);
-    cart = []; renderCart(); tg.MainButton.hide();
+    cart = [];
+    renderCart();
+    tg.MainButton.hide();
     showInvoice({
-      id: order.id, created_at: order.created_at || new Date().toISOString(),
-      total_amount: total, discount, tax, grand_total: grand, paid_amount: paid,
-      customer_name: (await supabase.from('customers').select('name').eq('id', customerId).single())?.data?.name,
-      items: cart.map(i => ({ name: i.name, attrs: Object.entries(i.attributes).map(([k,v])=>`${k}:${v}`).join('/'), quantity: i.quantity, unit_price: i.price }))
+      id: order.id,
+      created_at: order.created_at || new Date().toISOString(),
+      total_amount: total,
+      discount,
+      tax,
+      grand_total: grand,
+      paid_amount: paid,
+      customer_name: customerName,
+      items: invoiceItems
     });
   } catch (err) { showToast(err.message, true); } finally { tg.MainButton.enable(); }
 }
@@ -460,8 +526,13 @@ function showInvoice(order, type = 'sale') {
 
 // ---------- History ----------
 async function showHistory() {
-  window.currentRefreshFunction = showHistory; tg.MainButton.hide(); applyBackButton();
-  const { data: orders } = await supabase.from('orders').select('id, created_at, total_amount, discount, tax, grand_total, paid_amount, customers(name), order_items(quantity, unit_price, variants(attributes, products(name)))').order('created_at', { ascending: false });
+  window.currentRefreshFunction = showHistory;
+  tg.MainButton.hide();
+  applyBackButton();
+  const { data: orders } = await supabase
+    .from('orders')
+    .select('id, created_at, total_amount, discount, tax, grand_total, paid_amount, customers(name), order_items(quantity, unit_price, variants(attributes, products(name)))')
+    .order('created_at', { ascending: false });
   let html = `<h2>${t('history')}</h2>`;
   if (!orders?.length) html += `<p>${t('noData')}</p>`;
   else {
@@ -481,35 +552,262 @@ async function showHistory() {
   document.getElementById('export-sales-btn')?.addEventListener('click', exportSalesCSV);
 }
 window.showInvoiceFromOrder = async orderId => {
-  const { data: order } = await supabase.from('orders').select('*, customers(name), order_items(quantity, unit_price, variants(attributes, products(name)))').eq('id', orderId).single();
+  const { data: order } = await supabase
+    .from('orders')
+    .select('*, customers(name), order_items(quantity, unit_price, variants(attributes, products(name)))')
+    .eq('id', orderId).single();
   showInvoice({
-    id: order.id, created_at: order.created_at, total_amount: order.total_amount, discount: order.discount, tax: order.tax, grand_total: order.grand_total, paid_amount: order.paid_amount,
+    id: order.id,
+    created_at: order.created_at,
+    total_amount: order.total_amount,
+    discount: order.discount,
+    tax: order.tax,
+    grand_total: order.grand_total,
+    paid_amount: order.paid_amount,
     customer_name: order.customers?.name,
-    items: order.order_items.map(i => ({ name: i.variants?.products?.name, attrs: Object.entries(i.variants?.attributes || {}).map(([k,v])=>`${k}:${v}`).join('/'), quantity: i.quantity, unit_price: i.unit_price }))
+    items: order.order_items.map(i => ({
+      name: i.variants?.products?.name,
+      attrs: Object.entries(i.variants?.attributes || {}).map(([k,v])=>`${k}:${v}`).join('/'),
+      quantity: i.quantity,
+      unit_price: i.unit_price
+    }))
   });
 };
 async function exportSalesCSV() {
-  const { data: orders } = await supabase.from('orders').select('id, created_at, total_amount, discount, tax, grand_total, paid_amount, customers(name)');
-  exportToCSV('المبيعات.csv', ['رقم الطلب','التاريخ','العميل','الإجمالي','الحسم','الضريبة','الصافي','المدفوع','المتبقي'], orders.map(o => [o.id, new Date(o.created_at).toLocaleString(), o.customers?.name||'', o.total_amount, o.discount, o.tax, o.grand_total, o.paid_amount, o.grand_total - o.paid_amount]));
+  const { data: orders } = await supabase
+    .from('orders')
+    .select('id, created_at, total_amount, discount, tax, grand_total, paid_amount, customers(name)');
+  const headers = ['رقم الطلب','التاريخ','العميل','الإجمالي','الحسم','الضريبة','الصافي','المدفوع','المتبقي'];
+  const rows = orders.map(o => [
+    o.id,
+    new Date(o.created_at).toLocaleString(),
+    o.customers?.name||'',
+    o.total_amount,
+    o.discount,
+    o.tax,
+    o.grand_total,
+    o.paid_amount,
+    o.grand_total - o.paid_amount
+  ]);
+  exportToCSV('المبيعات.csv', headers, rows);
 }
 
-// ---------- Analytics (مختصرة) ----------
+// ---------- Analytics ----------
 async function showAnalytics() {
-  window.currentRefreshFunction = showAnalytics; tg.MainButton.hide(); applyBackButton();
-  view.innerHTML = '<h2>تحليلات</h2><p>قيد التطوير...</p>';
+  window.currentRefreshFunction = showAnalytics;
+  tg.MainButton.hide();
+  applyBackButton();
+  const { data: orders } = await supabase.from('orders').select('grand_total, created_at');
+  const totalToday = orders?.filter(o => new Date(o.created_at).toDateString() === new Date().toDateString())
+    .reduce((s,o) => s + o.grand_total, 0) || 0;
+  view.innerHTML = `<h2>تحليلات</h2><p>إجمالي مبيعات اليوم: ${formatCurrency(totalToday)}</p><p>(رسم بياني تحت التطوير)</p>`;
 }
 
 // ---------- Purchases ----------
 async function showPurchases() {
-  window.currentRefreshFunction = showPurchases; tg.MainButton.hide(); applyBackButton();
-  view.innerHTML = `<h2>${t('purchases')}</h2><button id="new-purchase-btn">شراء جديد</button><button id="purchases-history-btn">سجل المشتريات</button>`;
+  window.currentRefreshFunction = showPurchases;
+  tg.MainButton.hide();
+  applyBackButton();
+  view.innerHTML = `
+    <h2>${t('purchases')}</h2>
+    <button id="suppliers-tab-btn">الموردين</button>
+    <button id="new-purchase-btn">شراء جديد</button>
+    <button id="purchases-history-btn">سجل المشتريات</button>
+    <div id="purchases-subview"></div>`;
+  document.getElementById('suppliers-tab-btn').addEventListener('click', showSuppliers);
   document.getElementById('new-purchase-btn').addEventListener('click', () => navigateTo('add-purchase'));
   document.getElementById('purchases-history-btn').addEventListener('click', showPurchasesHistory);
+  showSuppliers();
+}
+
+async function showSuppliers() {
+  const { data: suppliers } = await supabase.from('suppliers').select('*').order('name');
+  let html = `<h3>الموردين</h3><ul>`;
+  suppliers.forEach(s => {
+    html += `<li>${sanitize(s.name)} ${sanitize(s.phone||'')} <button onclick="window.deleteSupplier(${s.id})">${t('delete')}</button></li>`;
+  });
+  html += `</ul><button id="add-supplier-btn">+ إضافة مورد</button>`;
+  document.getElementById('purchases-subview').innerHTML = html;
+  document.getElementById('add-supplier-btn').addEventListener('click', () => {
+    const subview = document.getElementById('purchases-subview');
+    subview.innerHTML = `<h3>إضافة مورد</h3>
+      <input id="supp-name" placeholder="الاسم"/><input id="supp-phone" placeholder="الهاتف"/>
+      <button id="save-supplier-btn">حفظ</button>`;
+    document.getElementById('save-supplier-btn').addEventListener('click', async () => {
+      const name = document.getElementById('supp-name').value.trim();
+      if (!name) { showToast('الاسم مطلوب', true); return; }
+      await supabase.from('suppliers').insert({ user_id: currentUserId, name, phone: document.getElementById('supp-phone').value });
+      showToast('تم الحفظ');
+      showSuppliers();
+    });
+  });
+}
+window.deleteSupplier = async id => {
+  if (confirm(t('confirmDelete'))) { await supabase.from('suppliers').delete().eq('id', id); showToast(t('deleted')); showSuppliers(); }
+};
+
+async function showPurchasesHistory() {
+  window.currentRefreshFunction = showPurchasesHistory;
+  tg.MainButton.hide();
+  applyBackButton();
+  const { data: purchases } = await supabase
+    .from('purchases')
+    .select('id, total_cost, discount, paid_amount, note, created_at, suppliers(name), purchase_items(quantity, unit_cost, variants(attributes, products(name)))')
+    .order('created_at', { ascending: false });
+  let html = `<h2>سجل المشتريات</h2>`;
+  if (!purchases?.length) html += `<p>${t('noData')}</p>`;
+  else {
+    purchases.forEach(p => {
+      const net = p.total_cost - (p.discount || 0);
+      const remaining = net - (p.paid_amount || 0);
+      html += `<div style="border:1px solid #ccc; margin:5px; padding:5px;">
+        <strong>شراء #${p.id}</strong> - ${new Date(p.created_at).toLocaleString()}<br/>
+        <small>${t('supplier')}: ${p.suppliers?.name || 'غير محدد'} | الإجمالي: ${formatCurrency(p.total_cost)} | حسم: ${formatCurrency(p.discount || 0)}</small><br/>
+        <small>المستحق: ${formatCurrency(net)} | ${t('paid')}: ${formatCurrency(p.paid_amount || 0)} | ${t('remaining')}: ${formatCurrency(remaining)}</small>
+        <button onclick="window.showPurchaseInvoice(${p.id})">${t('invoice')}</button>
+        <ul>${p.purchase_items.map(i => `<li>${i.variants?.products?.name || ''} ${i.variants ? Object.entries(i.variants.attributes).map(([k,v])=>`${k}:${v}`).join('/') : ''} ×${i.quantity} (${formatCurrency(i.unit_cost)})</li>`).join('')}</ul>
+      </div>`;
+    });
+    html += `<button id="export-purchases-btn">📥 ${t('exportCSV')}</button>`;
+  }
+  document.getElementById('purchases-subview').innerHTML = html;
+  document.getElementById('export-purchases-btn')?.addEventListener('click', exportPurchasesCSV);
+}
+window.showPurchaseInvoice = async purchaseId => {
+  const { data: purchase } = await supabase
+    .from('purchases')
+    .select('*, suppliers(name), purchase_items(quantity, unit_cost, variants(attributes, products(name)))')
+    .eq('id', purchaseId).single();
+  if (!purchase) return;
+  showInvoice({
+    id: purchase.id,
+    created_at: purchase.created_at,
+    total_amount: purchase.total_cost,
+    discount: purchase.discount || 0,
+    tax: 0,
+    grand_total: purchase.total_cost - (purchase.discount || 0),
+    paid_amount: purchase.paid_amount || 0,
+    supplier_name: purchase.suppliers?.name,
+    items: purchase.purchase_items.map(i => ({
+      name: i.variants?.products?.name || '',
+      attrs: i.variants ? Object.entries(i.variants.attributes).map(([k,v])=>`${k}:${v}`).join('/') : '',
+      quantity: i.quantity,
+      unit_price: i.unit_cost
+    }))
+  }, 'purchase');
+};
+async function exportPurchasesCSV() {
+  const { data } = await supabase.from('purchases').select('id, created_at, total_cost, discount, paid_amount, suppliers(name)');
+  exportToCSV('المشتريات.csv',
+    ['رقم الشراء','التاريخ','المورد','الإجمالي','الحسم','المدفوع','المتبقي'],
+    data.map(p => [p.id, new Date(p.created_at).toLocaleString(), p.suppliers?.name||'', p.total_cost, p.discount||0, p.paid_amount||0, (p.total_cost - (p.discount||0)) - (p.paid_amount||0)])
+  );
+}
+
+async function showAddPurchaseForm() {
+  tg.BackButton.show();
+  tg.MainButton.setText('إتمام الشراء');
+  tg.MainButton.show();
+  tg.MainButton.onClick(completePurchase);
+  const { data: products } = await supabase.from('products').select('id, name, variants(id, attributes)');
+  let prodOptions = '';
+  products.forEach(p => p.variants.forEach(v => {
+    const attrs = Object.entries(v.attributes).map(([k,val])=>`${k}:${val}`).join('/');
+    prodOptions += `<option value="${p.id}_${v.id}">${p.name} - ${attrs}</option>`;
+  }));
+  const { data: suppliers } = await supabase.from('suppliers').select('id, name').order('name');
+  let supplierOpts = '<option value="">بدون مورد</option>';
+  suppliers.forEach(s => supplierOpts += `<option value="${s.id}">${s.name}</option>`);
+  view.innerHTML = `
+    <h3>تسجيل شراء جديد</h3>
+    <div style="display:flex; gap:10px;">
+      <select id="purchase-variant">${prodOptions}</select>
+      <input id="purchase-qty" type="number" value="1" min="1" style="width:60px"/>
+      <input id="purchase-cost" type="number" step="0.01" placeholder="تكلفة الوحدة"/>
+      <button id="add-to-purchase-cart">أضف</button>
+    </div>
+    <table id="purchase-cart-table" width="100%"><thead><tr><th>الصنف</th><th>تكلفة</th><th>كمية</th><th>إجمالي</th><th></th></tr></thead><tbody></tbody></table>
+    <p>الإجمالي: <span id="purchase-total">0</span></p>
+    <div><label>حسم مكتسب:</label><input id="purchase-discount" type="number" step="0.01" value="0"/> ل.س</div>
+    <div><label>المدفوع:</label><input id="purchase-paid" type="number" step="0.01" value="0"/> ل.س</div>
+    <div><label>${t('supplier')}:</label><select id="purchase-supplier">${supplierOpts}</select></div>
+    <textarea id="purchase-note" placeholder="ملاحظات"></textarea>
+    <div id="purchase-msg"></div>`;
+  document.getElementById('add-to-purchase-cart').addEventListener('click', addToPurchaseCart);
+  renderPurchaseCart();
+}
+function addToPurchaseCart() {
+  const select = document.getElementById('purchase-variant');
+  const [productId, variantId] = select.value.split('_');
+  const qty = parseInt(document.getElementById('purchase-qty').value) || 1;
+  const unitCost = parseFloat(document.getElementById('purchase-cost').value);
+  if (isNaN(unitCost) || unitCost <= 0) { showToast('أدخل تكلفة صحيحة', true); return; }
+  supabase.from('variants').select('attributes, products(name)').eq('id', variantId).single().then(({ data }) => {
+    purchaseCart.push({ productId, variantId, name: data.products.name, attributes: data.attributes, unitCost, quantity: qty });
+    renderPurchaseCart();
+  });
+}
+function removeFromPurchaseCart(idx) { purchaseCart.splice(idx, 1); renderPurchaseCart(); }
+window.removeFromPurchaseCart = removeFromPurchaseCart;
+function renderPurchaseCart() {
+  const tbody = document.querySelector('#purchase-cart-table tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  let total = 0;
+  purchaseCart.forEach((item, idx) => {
+    const line = item.unitCost * item.quantity;
+    total += line;
+    const attrs = Object.entries(item.attributes).map(([k,v])=>`${k}:${v}`).join('/');
+    tbody.innerHTML += `<tr><td>${item.name} ${attrs}</td><td>${formatCurrency(item.unitCost)}</td><td>${item.quantity}</td><td>${formatCurrency(line)}</td><td><button onclick="window.removeFromPurchaseCart(${idx})">X</button></td></tr>`;
+  });
+  document.getElementById('purchase-total').textContent = formatCurrency(total);
+}
+async function completePurchase() {
+  if (!purchaseCart.length) { showToast('عربة المشتريات فارغة', true); return; }
+  tg.MainButton.disable();
+  try {
+    const totalCost = purchaseCart.reduce((s, i) => s + i.unitCost * i.quantity, 0);
+    const discount = parseFloat(document.getElementById('purchase-discount')?.value) || 0;
+    const paidAmount = parseFloat(document.getElementById('purchase-paid')?.value) || 0;
+    const supplierId = document.getElementById('purchase-supplier')?.value || null;
+    const note = document.getElementById('purchase-note')?.value || '';
+    if (paidAmount > totalCost - discount + 0.001) { showToast('المدفوع أكبر من المستحق', true); tg.MainButton.enable(); return; }
+    const { data: purchase, error } = await supabase.from('purchases').insert({
+      user_id: currentUserId,
+      supplier_id: supplierId || null,
+      total_cost: totalCost,
+      discount,
+      paid_amount: paidAmount,
+      note
+    }).select().single();
+    if (error) throw error;
+    const itemsData = purchaseCart.map(item => ({
+      purchase_id: purchase.id,
+      product_id: item.productId,
+      variant_id: item.variantId,
+      quantity: item.quantity,
+      unit_cost: item.unitCost
+    }));
+    const { error: itemsError } = await supabase.from('purchase_items').insert(itemsData);
+    if (itemsError) { await supabase.from('purchases').delete().eq('id', purchase.id); throw itemsError; }
+    for (const item of purchaseCart) {
+      const { data: variant } = await supabase.from('variants').select('quantity').eq('id', item.variantId).single();
+      if (variant) await supabase.from('variants').update({ quantity: variant.quantity + item.quantity }).eq('id', item.variantId);
+    }
+    await recordCashTransaction('withdraw', paidAmount, 'purchase', purchase.id, `شراء #${purchase.id}`);
+    await logActivity('purchase', `Purchase #${purchase.id}, Total: ${totalCost}`);
+    showToast(`تم الشراء! رقم العملية: ${purchase.id}`);
+    purchaseCart = [];
+    tg.MainButton.hide();
+    goBack();
+  } catch (err) { showToast(err.message, true); } finally { tg.MainButton.enable(); }
 }
 
 // ---------- Customers ----------
 async function showCustomers() {
-  window.currentRefreshFunction = showCustomers; tg.MainButton.hide(); applyBackButton();
+  window.currentRefreshFunction = showCustomers;
+  tg.MainButton.hide();
+  applyBackButton();
   const { data: customers } = await supabase.from('customers').select('*').order('name');
   let html = `<h2>${t('customers')}</h2><input id="search-customers" placeholder="${t('search')}"/><ul>`;
   customers?.forEach(c => html += `<li>${sanitize(c.name)} ${sanitize(c.phone||'')} <button onclick="window.deleteCustomer(${c.id})">${t('delete')}</button></li>`);
@@ -522,8 +820,33 @@ async function showCustomers() {
   document.getElementById('add-customer-btn')?.addEventListener('click', () => navigateTo('add-customer'));
   document.getElementById('export-customers-btn')?.addEventListener('click', exportCustomersCSV);
 }
-window.deleteCustomer = async id => { if (confirm(t('confirmDelete'))) { await supabase.from('customers').delete().eq('id', id); showToast(t('deleted')); showCustomers(); } };
-
+window.deleteCustomer = async id => {
+  if (confirm(t('confirmDelete'))) { await supabase.from('customers').delete().eq('id', id); showToast(t('deleted')); showCustomers(); }
+};
+async function showAddCustomerForm() {
+  tg.BackButton.show();
+  tg.MainButton.setText(t('save'));
+  tg.MainButton.show();
+  tg.MainButton.onClick(saveCustomer);
+  view.innerHTML = `<h3>إضافة عميل</h3><input id="cust-name" placeholder="الاسم"/><input id="cust-phone" placeholder="الهاتف"/><textarea id="cust-notes" placeholder="${t('notes')}"></textarea>`;
+}
+async function saveCustomer() {
+  const name = document.getElementById('cust-name').value.trim();
+  if (!name) { showToast('الاسم مطلوب', true); return; }
+  tg.MainButton.disable();
+  try {
+    await supabase.from('customers').insert({
+      user_id: currentUserId,
+      name,
+      phone: document.getElementById('cust-phone').value,
+      notes: document.getElementById('cust-notes').value
+    });
+    showToast(t('saved'));
+    tg.MainButton.hide();
+    goBack();
+    showCustomers();
+  } catch (err) { showToast(err.message, true); } finally { tg.MainButton.enable(); }
+}
 async function exportCustomersCSV() {
   const { data } = await supabase.from('customers').select('name, phone, notes');
   exportToCSV('العملاء.csv', ['الاسم','الهاتف','ملاحظات'], data.map(c => [c.name, c.phone||'', c.notes||'']));
@@ -531,7 +854,9 @@ async function exportCustomersCSV() {
 
 // ---------- Cash Register ----------
 async function showCashRegister() {
-  window.currentRefreshFunction = showCashRegister; tg.MainButton.hide(); applyBackButton();
+  window.currentRefreshFunction = showCashRegister;
+  tg.MainButton.hide();
+  applyBackButton();
   const { data: transactions } = await supabase.from('cash_register').select('*').order('created_at', { ascending: false });
   let balance = transactions?.reduce((sum, t) => sum + (t.type === 'deposit' ? t.amount : -t.amount), 0) || 0;
   let html = `<h2>${t('cash')}</h2><div class="stat-card"><strong>${t('balance')}</strong><br/>${formatCurrency(balance)}</div>
@@ -552,7 +877,10 @@ async function showCashRegister() {
 }
 
 async function showAddCashTransactionForm(type) {
-  tg.BackButton.show(); tg.MainButton.setText(t('save')); tg.MainButton.show(); tg.MainButton.onClick(() => saveCashTransaction(type));
+  tg.BackButton.show();
+  tg.MainButton.setText(t('save'));
+  tg.MainButton.show();
+  tg.MainButton.onClick(() => saveCashTransaction(type));
   view.innerHTML = `<h3>${type === 'deposit' ? 'إيداع' : 'سحب'} جديد</h3><input id="cash-amount" type="number" step="0.01" placeholder="${t('amount')}"/><textarea id="cash-note" placeholder="${t('notes')}"></textarea>`;
 }
 async function saveCashTransaction(type) {
@@ -563,7 +891,10 @@ async function saveCashTransaction(type) {
   try {
     await supabase.from('cash_register').insert({ user_id: currentUserId, type, amount, reference_type: 'manual', note });
     await logActivity('cash_' + type, `Amount: ${amount}`);
-    showToast(t('saved')); tg.MainButton.hide(); goBack(); showCashRegister();
+    showToast(t('saved'));
+    tg.MainButton.hide();
+    goBack();
+    showCashRegister();
   } catch (err) { showToast(err.message, true); } finally { tg.MainButton.enable(); }
 }
 async function exportCashCSV() {
@@ -573,7 +904,9 @@ async function exportCashCSV() {
 
 // ---------- Expenses ----------
 async function showExpenses() {
-  window.currentRefreshFunction = showExpenses; tg.MainButton.hide(); applyBackButton();
+  window.currentRefreshFunction = showExpenses;
+  tg.MainButton.hide();
+  applyBackButton();
   const { data: expenses } = await supabase.from('expenses').select('*').order('expense_date', { ascending: false });
   const { data: workers } = await supabase.from('expenses').select('worker_name, amount').not('worker_name', 'eq', '');
   const workerTotals = {};
@@ -592,10 +925,20 @@ async function showExpenses() {
   document.getElementById('add-expense-btn')?.addEventListener('click', () => navigateTo('add-expense'));
   document.getElementById('export-expenses-btn')?.addEventListener('click', exportExpensesCSV);
 }
-window.deleteExpense = async id => { if (confirm(t('confirmDelete'))) { await supabase.from('expenses').delete().eq('id', id); await logActivity('delete_expense', `ID:${id}`); showToast(t('deleted')); showExpenses(); } };
+window.deleteExpense = async id => {
+  if (confirm(t('confirmDelete'))) {
+    await supabase.from('expenses').delete().eq('id', id);
+    await logActivity('delete_expense', `ID:${id}`);
+    showToast(t('deleted'));
+    showExpenses();
+  }
+};
 
 async function showAddExpenseForm() {
-  tg.BackButton.show(); tg.MainButton.setText(t('save')); tg.MainButton.show(); tg.MainButton.onClick(saveExpense);
+  tg.BackButton.show();
+  tg.MainButton.setText(t('save'));
+  tg.MainButton.show();
+  tg.MainButton.onClick(saveExpense);
   view.innerHTML = `<h3>إضافة مصروف</h3><input id="expense-amount" type="number" step="0.01" placeholder="${t('amount')}"/><input id="expense-category" placeholder="${t('category')}" value="أخرى"/><input id="expense-worker" placeholder="${t('worker')}"/><input id="expense-desc" placeholder="${t('description')}"/><input id="expense-date" type="date" value="${new Date().toISOString().split('T')[0]}"/>`;
 }
 async function saveExpense() {
@@ -607,11 +950,16 @@ async function saveExpense() {
   const date = document.getElementById('expense-date')?.value || new Date().toISOString().split('T')[0];
   tg.MainButton.disable();
   try {
-    const { data: record, error } = await supabase.from('expenses').insert({ user_id: currentUserId, amount, category, worker_name: workerName, description, expense_date: date }).select('id').single();
+    const { data: record, error } = await supabase.from('expenses').insert({
+      user_id: currentUserId, amount, category, worker_name: workerName, description, expense_date: date
+    }).select('id').single();
     if (error) throw error;
     await recordCashTransaction('withdraw', amount, 'expense', record.id, `${category} - ${workerName}`);
     await logActivity('add_expense', `Amount: ${amount}, Worker: ${workerName}`);
-    showToast(t('saved')); tg.MainButton.hide(); goBack(); showExpenses();
+    showToast(t('saved'));
+    tg.MainButton.hide();
+    goBack();
+    showExpenses();
   } catch (err) { showToast(err.message, true); } finally { tg.MainButton.enable(); }
 }
 async function exportExpensesCSV() {
@@ -621,7 +969,9 @@ async function exportExpensesCSV() {
 
 // ---------- Alerts ----------
 async function showAlerts() {
-  window.currentRefreshFunction = showAlerts; tg.MainButton.hide(); applyBackButton();
+  window.currentRefreshFunction = showAlerts;
+  tg.MainButton.hide();
+  applyBackButton();
   const { data: variants } = await supabase.from('variants').select('id, quantity, min_quantity, attributes, products(name)').gt('min_quantity', 0);
   const lowStock = variants?.filter(v => v.quantity <= v.min_quantity) || [];
   let html = `<h2>${t('alerts')}</h2>`;
