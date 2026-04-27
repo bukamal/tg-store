@@ -3,8 +3,8 @@ export function initTelegram() {
   tg.ready();
   tg.expand();
 
-  document.body.style.backgroundColor = tg.themeParams.bg_color || '#fff';
-  document.body.style.color = tg.themeParams.text_color || '#000';
+  document.body.style.backgroundColor = tg.themeParams.bg_color || '#ffffff';
+  document.body.style.color = tg.themeParams.text_color || '#1a1a1a';
 
   tg.BackButton.hide();
   tg.BackButton.onClick(() => {
