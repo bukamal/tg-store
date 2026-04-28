@@ -11,60 +11,69 @@ import { handleRealtimeUpdate } from './realtime.js';
   const viewEl = document.getElementById('view');
   viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>جاري التحميل...</div>';
 
-  // نستخدم WebApp.request للتوافق مع بيئة تيليجرام
-  tg.WebApp.request({
-    url: '/api/auth',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    data: JSON.stringify({ initData: tg.initData })
-  }, async (err, res) => {
-    if (err) {
-      viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ في الاتصال: ${err}</div>`;
-      return;
-    }
+  const API_URL = 'https://tg-store.vercel.app/api/auth'; // الرابط الكامل
+
+  // دالة مشتركة لمعالجة الرد
+  async function handleAuthResponse(responseData) {
+    const { token, userId } = responseData;
+    const supabase = initSupabase(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
+    await supabase.auth.setSession({ access_token: token, refresh_token: '' });
+    setCurrentUserId(userId);
+
+    window.usdRate = 15000;
+    setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
 
     try {
-      const { token, userId } = JSON.parse(res);
+      getSupabase().channel('public:variants').on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate).subscribe();
+      getSupabase().channel('public:orders').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate).subscribe();
+    } catch {}
 
-      const supabase = initSupabase(
-        import.meta.env.VITE_SUPABASE_URL,
-        import.meta.env.VITE_SUPABASE_ANON_KEY
-      );
-      await supabase.auth.setSession({ access_token: token, refresh_token: '' });
-      setCurrentUserId(userId);
+    document.querySelector('[data-view="toggle-lang"]')?.addEventListener('click', () => {
+      toggleLanguage();
+      if (window.currentRefreshFunction) window.currentRefreshFunction();
+    });
 
-      // سعر الصرف
+    setTimeout(() => {
+      initRouter();
+      navigateTo('products');
+    }, 50);
+  }
+
+  // محاولة استخدام tg.WebApp.request إذا كنا داخل تيليجرام
+  if (window.Telegram?.WebApp?.request) {
+    tg.WebApp.request({
+      url: API_URL,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      data: JSON.stringify({ initData: tg.initData })
+    }, async (err, res) => {
+      if (err) {
+        viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ WebApp: ${err}</div>`;
+        return;
+      }
       try {
-        const { data: rateData } = await supaCall(() =>
-          getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
-        );
-        window.usdRate = parseFloat(rateData?.value) || 15000;
-      } catch { window.usdRate = 15000; }
-
-      setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
-
-      // Realtime
-      try {
-        getSupabase().channel('public:variants')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
-          .subscribe();
-        getSupabase().channel('public:orders')
-          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate)
-          .subscribe();
-      } catch {}
-
-      document.querySelector('[data-view="toggle-lang"]')?.addEventListener('click', () => {
-        toggleLanguage();
-        if (window.currentRefreshFunction) window.currentRefreshFunction();
+        const data = JSON.parse(res);
+        await handleAuthResponse(data);
+      } catch (e) {
+        viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ في الرد: ${e.message}</div>`;
+      }
+    });
+  } else {
+    // بيئة المتصفح العادي: نستخدم fetch
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData: tg.initData || 'test' })
       });
-
-      setTimeout(() => {
-        initRouter();
-        navigateTo('products');
-      }, 50);
-
+      if (!res.ok) {
+        viewEl.innerHTML = `<div class="card" style="color:red;">❌ فشل المصادقة (${res.status})</div>`;
+        return;
+      }
+      const data = await res.json();
+      await handleAuthResponse(data);
     } catch (e) {
-      viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ: ${e.message}</div>`;
+      viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ fetch: ${e.message}</div>`;
     }
-  });
+  }
 })();
