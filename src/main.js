@@ -20,7 +20,6 @@ function waitForTg() {
   await waitForTg();
 
   const viewEl = document.getElementById('view');
-  // عرض حالة تهيئة مؤقتة
   viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>جاري التحميل...</div>';
 
   const res = await fetch('/api/auth', {
@@ -39,20 +38,18 @@ function waitForTg() {
   await supabase.auth.setSession({ access_token: token, refresh_token: '' });
   setCurrentUserId(userId);
 
-  // سعر الصرف – نتحمل الفشل
   try {
     const { data: rateData } = await supaCall(() =>
       getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
     );
     window.usdRate = parseFloat(rateData?.value) || 15000;
   } catch (e) {
-    window.usdRate = 15000; // وضع افتراضي
+    window.usdRate = 15000;
     console.warn('Failed to load usd_rate, using 15000');
   }
 
   setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
 
-  // Realtime
   try {
     getSupabase().channel('public:variants')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
@@ -69,10 +66,8 @@ function waitForTg() {
     if (window.currentRefreshFunction) window.currentRefreshFunction();
   });
 
-  // تأخير بسيط لضمان تجهيز DOM
   setTimeout(() => {
     initRouter();
-    // استدعاء أولي
     navigateTo('products');
   }, 100);
 })();

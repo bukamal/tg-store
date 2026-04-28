@@ -9,12 +9,7 @@ export default async function handler(req, res) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  const { data } = await supabase
-    .from('bot_settings')
-    .select('value')
-    .eq('key', 'owner_chat_id')
-    .single();
-
+  const { data } = await supabase.from('bot_settings').select('value').eq('key', 'owner_chat_id').single();
   const chatId = data?.value;
   if (!chatId) return res.json({ sent: false });
 
