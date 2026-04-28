@@ -11,15 +11,15 @@ import { handleRealtimeUpdate } from './realtime.js';
   const viewEl = document.getElementById('view');
   viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>جاري التحميل...</div>';
 
-  // الرابط المباشر لدالة Supabase
-  const SUPABASE_FUNCTION_URL = 'https://tzxjmyfevzdjftzpypjf.supabase.co/functions/v1/telegram-auth';
+  const API_URL = '/api/auth'; // رابط نسبي يعمل داخل Vercel وداخل WebView
 
-  // الدالة التي تعالج الرد بعد المصادقة
+  // دالة مشتركة لمعالجة الرد
   async function onAuthSuccess(token, userId) {
     const supabase = initSupabase(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
     await supabase.auth.setSession({ access_token: token, refresh_token: '' });
     setCurrentUserId(userId);
 
+    // سعر الصرف
     try {
       const { data: rateData } = await supaCall(() =>
         getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
@@ -29,6 +29,7 @@ import { handleRealtimeUpdate } from './realtime.js';
 
     setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
 
+    // Realtime
     try {
       getSupabase().channel('public:variants')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
@@ -49,15 +50,12 @@ import { handleRealtimeUpdate } from './realtime.js';
     }, 50);
   }
 
-  // استخدام tg.WebApp.request إذا كنا داخل تيليجرام
+  // محاولة استخدام tg.WebApp.request إذا كنا داخل تيليجرام
   if (window.Telegram?.WebApp?.request) {
     tg.WebApp.request({
-      url: SUPABASE_FUNCTION_URL,
+      url: API_URL,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       data: JSON.stringify({ initData: tg.initData })
     }, async (err, res) => {
       if (err) {
@@ -72,14 +70,11 @@ import { handleRealtimeUpdate } from './realtime.js';
       }
     });
   } else {
-    // بيئة المتصفح العادي: نستخدم fetch مع الرابط المباشر (لن يفيد هنا لكن نبقيه للاختبار)
+    // بيئة المتصفح العادي: نستخدم fetch
     try {
-      const res = await fetch(SUPABASE_FUNCTION_URL, {
+      const res = await fetch(API_URL, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ initData: tg.initData || 'test' })
       });
       if (!res.ok) {
