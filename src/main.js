@@ -1,73 +1,40 @@
 import './style.css';
 import { initTelegram } from './telegram.js';
-import { initSupabase, setCurrentUserId, getSupabase, supaCall } from './utils/supabase-client.js';
-import { setLanguage, toggleLanguage } from './config/i18n.js';
-import { navigateTo, initRouter } from './navigation/router.js';
-import { handleRealtimeUpdate } from './realtime.js';
 
 (async () => {
   const tg = initTelegram();
   window.tg = tg;
   const viewEl = document.getElementById('view');
-  viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>جاري التحميل...</div>';
+  viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>مرحلة 1: بدء التشغيل</div>';
 
-  const SUPABASE_FUNCTION_URL = 'https://tzxjmyfevzdjftzpypjf.supabase.co/functions/v1/telegram-auth';
+  // اختبار بسيط: عرض initData
+  if (!tg.initData) {
+    viewEl.innerHTML = '<div class="card" style="color:red;">❌ initData فارغ</div>';
+    return;
+  }
 
-  // استخدام tg.WebApp.request للتغلب على قيود fetch في WebView
+  viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⏳</div>مرحلة 2: الاتصال بالدالة...</div>';
+
+  // استدعاء الدالة مع عرض النتيجة مباشرة
   tg.WebApp.request({
-    url: SUPABASE_FUNCTION_URL,
+    url: 'https://tzxjmyfevzdjftzpypjf.supabase.co/functions/v1/telegram-auth',
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     data: JSON.stringify({ initData: tg.initData })
-  }, async (err, res) => {
+  }, (err, res) => {
     if (err) {
-      viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ في الاتصال: ${err}</div>`;
+      viewEl.innerHTML = `<div class="card" style="color:red;">❌ فشل الاتصال بالدالة: ${err}</div>`;
       return;
     }
 
+    viewEl.innerHTML = `<div class="card">✅ تم الاتصال بالدالة. الرد: ${res}</div>`;
+
+    // محاولة تحليل الرد
     try {
-      const { token, userId } = JSON.parse(res);
-
-      const supabase = initSupabase(
-        import.meta.env.VITE_SUPABASE_URL,
-        import.meta.env.VITE_SUPABASE_ANON_KEY
-      );
-      await supabase.auth.setSession({ access_token: token, refresh_token: '' });
-      setCurrentUserId(userId);
-
-      // سعر الصرف
-      try {
-        const { data: rateData } = await supaCall(() =>
-          getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
-        );
-        window.usdRate = parseFloat(rateData?.value) || 15000;
-      } catch { window.usdRate = 15000; }
-
-      setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
-
-      // Realtime
-      try {
-        getSupabase().channel('public:variants')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
-          .subscribe();
-        getSupabase().channel('public:orders')
-          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate)
-          .subscribe();
-      } catch {}
-
-      document.querySelector('[data-view="toggle-lang"]')?.addEventListener('click', () => {
-        toggleLanguage();
-        if (window.currentRefreshFunction) window.currentRefreshFunction();
-      });
-
-      // تهيئة الأزرار والانتقال للرئيسية
-      setTimeout(() => {
-        initRouter();
-        navigateTo('products');
-      }, 50);
-
+      const data = JSON.parse(res);
+      viewEl.innerHTML += `<br>الرمز: ${data.token ? 'موجود' : 'مفقود'}`;
     } catch (e) {
-      viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ: ${e.message}</div>`;
+      viewEl.innerHTML += `<br>❌ فشل تحليل JSON: ${e.message}`;
     }
   });
 })();
