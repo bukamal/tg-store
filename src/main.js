@@ -5,10 +5,23 @@ import { setLanguage, toggleLanguage } from './config/i18n.js';
 import { navigateTo, initRouter } from './navigation/router.js';
 import { handleRealtimeUpdate } from './realtime.js';
 
-const tg = initTelegram();
-window.tg = tg;
+// انتظر حتى يكون Telegram WebApp جاهزًا
+function waitForTg() {
+  return new Promise((resolve) => {
+    if (window.tg) return resolve();
+    const check = setInterval(() => {
+      if (window.tg) { clearInterval(check); resolve(); }
+    }, 100);
+  });
+}
 
 (async () => {
+  const tg = initTelegram();
+  window.tg = tg;
+  
+  // تأكد من جاهزية tg
+  await waitForTg();
+
   const res = await fetch('/api/auth', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -25,16 +38,13 @@ window.tg = tg;
   await supabase.auth.setSession({ access_token: token, refresh_token: '' });
   setCurrentUserId(userId);
 
-  // سعر الصرف
   const { data: rateData } = await supaCall(() =>
     getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
   );
   window.usdRate = parseFloat(rateData?.value) || 15000;
 
-  // اللغة
   setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
 
-  // Realtime
   getSupabase()
     .channel('public:variants')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
@@ -44,15 +54,15 @@ window.tg = tg;
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate)
     .subscribe();
 
-  // تبديل اللغة
   document.querySelector('[data-view="toggle-lang"]')?.addEventListener('click', () => {
     toggleLanguage();
     if (window.currentRefreshFunction) window.currentRefreshFunction();
   });
 
-  // ** تفعيل أزرار الشريط السفلي **
-  initRouter();
+  // تأخير استدعاء initRouter قليلاً للتأكد من وجود DOM
+  setTimeout(() => {
+    initRouter();
+  }, 50);
 
-  // الانتقال للواجهة الرئيسية
   navigateTo('products');
 })();

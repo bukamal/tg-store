@@ -32,11 +32,28 @@ export async function showProducts() {
     document.getElementById('export-stock-btn').addEventListener('click', exportStockCSV);
   } catch (e) {
     document.getElementById('view').innerHTML = `<div class="card" style="color:red;">فشل تحميل الأصناف: ${e.message}</div>`;
+    console.error(e);
   }
 }
 
-window.deleteProduct = async id => { if (!confirm(t('confirmDelete'))) return; await supaCall(() => getSupabase().from('products').delete().eq('id', id)); await logActivity('delete_product', `ID:${id}`); showToast(t('deleted')); showProducts(); };
-window.deleteVariant = async id => { if (!confirm(t('confirmDelete'))) return; await supaCall(() => getSupabase().from('variants').delete().eq('id', id)); await logActivity('delete_variant', `ID:${id}`); showToast(t('deleted')); showProducts(); };
+window.deleteProduct = async id => {
+  if (!confirm(t('confirmDelete'))) return;
+  try {
+    await supaCall(() => getSupabase().from('products').delete().eq('id', id));
+    await logActivity('delete_product', `ID:${id}`);
+    showToast(t('deleted'));
+    showProducts();
+  } catch (err) { showToast(err.message, true); }
+};
+window.deleteVariant = async id => {
+  if (!confirm(t('confirmDelete'))) return;
+  try {
+    await supaCall(() => getSupabase().from('variants').delete().eq('id', id));
+    await logActivity('delete_variant', `ID:${id}`);
+    showToast(t('deleted'));
+    showProducts();
+  } catch (err) { showToast(err.message, true); }
+};
 
 async function exportStockCSV() {
   const { data: products } = await supaCall(() => getSupabase().from('products').select('name, variants(variant_name, purchase_price, selling_price, quantity, min_quantity)'));
@@ -63,30 +80,49 @@ function addVariantRow() {
 async function saveProductWithVariants() {
   const name = document.getElementById('pname').value.trim();
   if (!name) { showToast(t('fillAllFields'), true); return; }
-  const rows = document.querySelectorAll('.variant-row'); const variants = []; let hasError = false;
+  const rows = document.querySelectorAll('.variant-row');
+  const variants = [];
+  let hasError = false;
   rows.forEach(row => {
     const vname = row.querySelector('.v-name').value.trim() || 'بدون اسم';
     const purchasePrice = parseFloat(row.querySelector('.v-purchase-price').value);
     const sellingPrice = parseFloat(row.querySelector('.v-selling-price').value);
-    const qty = parseInt(row.querySelector('.v-qty').value); const minQty = parseInt(row.querySelector('.v-min').value) || 0;
-    if (isNaN(purchasePrice) || purchasePrice < 0 || isNaN(sellingPrice) || sellingPrice < 0 || isNaN(qty) || qty < 0) { hasError = true; return; }
-    variants.push({ variant_name: vname, purchase_price: purchasePrice, selling_price: sellingPrice, quantity: qty, min_quantity: minQty });
+    const qty = parseInt(row.querySelector('.v-qty').value);
+    const minQty = parseInt(row.querySelector('.v-min').value) || 0;
+    if (isNaN(purchasePrice) || purchasePrice < 0 || isNaN(sellingPrice) || sellingPrice < 0 || isNaN(qty) || qty < 0) {
+      hasError = true;
+      return;
+    }
+    variants.push({
+      variant_name: vname,
+      purchase_price: purchasePrice,
+      selling_price: sellingPrice,
+      quantity: qty,
+      min_quantity: minQty
+    });
   });
   if (hasError || !variants.length) { showToast(t('fillAllFields'), true); return; }
   tg.MainButton.disable(); tg.MainButton.showProgress();
   try {
-    const { data: product, error } = await supaCall(() => getSupabase().from('products').insert({ name, user_id: getCurrentUserId() }).select().single());
+    const { data: product, error } = await supaCall(() =>
+      getSupabase().from('products').insert({ name, user_id: getCurrentUserId() }).select().single()
+    );
     if (error) throw error;
     const varsData = variants.map(v => ({ ...v, product_id: product.id, user_id: getCurrentUserId() }));
     await supaCall(() => getSupabase().from('variants').insert(varsData));
     await logActivity('add_product', `Name: ${name}`);
     showToast(t('saved')); tg.MainButton.hide(); goBack(); showProducts();
-  } catch (err) { showToast(err.message, true); } finally { tg.MainButton.hideProgress(); tg.MainButton.enable(); }
+  } catch (err) { showToast(err.message, true); } finally {
+    tg.MainButton.hideProgress();
+    tg.MainButton.enable();
+  }
 }
 
 export async function showEditProductForm(productId) {
   tg.BackButton.show(); tg.MainButton.setText(t('save')); tg.MainButton.show(); tg.MainButton.onClick(() => updateProduct(productId));
-  const { data: product } = await supaCall(() => getSupabase().from('products').select('*, variants(*)').eq('id', productId).single());
+  const { data: product } = await supaCall(() =>
+    getSupabase().from('products').select('*, variants(*)').eq('id', productId).single()
+  );
   document.getElementById('view').innerHTML = `<div class="card"><h3>تعديل ${sanitize(product.name)}</h3><div id="variants-container"></div><button class="btn btn-outline" id="add-variant-row">+ إضافة متغير</button></div>`;
   const container = document.getElementById('variants-container');
   product.variants.forEach(v => {
@@ -100,14 +136,22 @@ export async function showEditProductForm(productId) {
 
 async function updateProduct(productId) {
   if (!confirm('سيتم استبدال جميع المتغيرات. متابعة؟')) return;
-  const rows = document.querySelectorAll('.variant-row'); const variants = [];
+  const rows = document.querySelectorAll('.variant-row');
+  const variants = [];
   rows.forEach(row => {
     const vname = row.querySelector('.v-name').value.trim() || 'بدون اسم';
     const purchasePrice = parseFloat(row.querySelector('.v-purchase-price').value);
     const sellingPrice = parseFloat(row.querySelector('.v-selling-price').value);
-    const qty = parseInt(row.querySelector('.v-qty').value); const minQty = parseInt(row.querySelector('.v-min').value) || 0;
+    const qty = parseInt(row.querySelector('.v-qty').value);
+    const minQty = parseInt(row.querySelector('.v-min').value) || 0;
     if (!vname || isNaN(purchasePrice) || isNaN(sellingPrice) || isNaN(qty)) return;
-    variants.push({ variant_name: vname, purchase_price: purchasePrice, selling_price: sellingPrice, quantity: qty, min_quantity: minQty });
+    variants.push({
+      variant_name: vname,
+      purchase_price: purchasePrice,
+      selling_price: sellingPrice,
+      quantity: qty,
+      min_quantity: minQty
+    });
   });
   if (!variants.length) { showToast(t('fillAllFields'), true); return; }
   tg.MainButton.disable(); tg.MainButton.showProgress();
@@ -117,5 +161,8 @@ async function updateProduct(productId) {
     await supaCall(() => getSupabase().from('variants').insert(newVariants));
     await logActivity('update_product', `ID: ${productId}`);
     showToast(t('saved')); tg.MainButton.hide(); goBack(); showProducts();
-  } catch (err) { showToast(err.message, true); } finally { tg.MainButton.hideProgress(); tg.MainButton.enable(); }
+  } catch (err) { showToast(err.message, true); } finally {
+    tg.MainButton.hideProgress();
+    tg.MainButton.enable();
+  }
 }

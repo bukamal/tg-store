@@ -79,9 +79,14 @@ export function goBack() {
 window.goBack = goBack;
 
 function applyBackButton() {
+  const tg = window.tg;
+  if (!tg) return;
   const mainViews = ['products', 'sell', 'history', 'analytics', 'purchases', 'customers', 'cash', 'expenses', 'alerts'];
-  if (!mainViews.includes(currentView) || viewStack.length > 0) tg.BackButton.show();
-  else tg.BackButton.hide();
+  if (!mainViews.includes(currentView) || viewStack.length > 0) {
+    tg.BackButton.show();
+  } else {
+    tg.BackButton.hide();
+  }
 }
 
 function setActiveNav(viewName) {
