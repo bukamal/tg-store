@@ -24,6 +24,7 @@ const i18n = {
     alerts: 'تنبيهات',
     categories: 'التصنيفات',
     addMaterial: 'إضافة مادة',
+    addCustomer: 'إضافة عميل',
     save: 'حفظ',
     delete: 'حذف',
     edit: 'تعديل',
@@ -46,7 +47,9 @@ const i18n = {
     saved: 'تم الحفظ',
     deleted: 'تم الحذف',
     fillAllFields: 'يرجى ملء جميع الحقول',
-    category: 'التصنيف'
+    category: 'التصنيف',
+    type: 'نوع المادة',
+    notes: 'ملاحظات'
   }
 };
 function t(key) { return i18n.ar[key] || key; }
@@ -172,12 +175,12 @@ async function supaCall(queryFn) {
 // ========== MATERIALS ==========
 async function showMaterials() {
   window.currentRefreshFunction = showMaterials; tg.MainButton.hide(); applyBackButton();
-  const { data: materials } = await supaCall(() => supabase.from('products').select('id, name, category_id, categories(name), variants(id, variant_name, purchase_price, selling_price, quantity, min_quantity)').eq('user_id', currentUserId).order('name'));
+  const { data: materials } = await supaCall(() => supabase.from('products').select('id, name, notes, category_id, categories(name), variants(id, variant_name, purchase_price, selling_price, quantity, min_quantity)').eq('user_id', currentUserId).order('name'));
   let html = `<div class="card"><h2>${t('materials')}</h2><button class="btn btn-outline" onclick="navigateTo('categories')">إدارة التصنيفات</button><input class="search-input" id="search-materials" placeholder="${t('search')}"/><div id="materials-list">`;
   if (!materials?.length) html += `<div class="empty-state">📦<br>${t('noData')}</div>`;
   else materials.forEach(m => {
     const catName = m.categories?.name ? ` [${m.categories.name}]` : '';
-    html += `<div class="material-card"><div class="material-header"><strong>${sanitize(m.name)}${catName}</strong><div><button class="btn btn-sm btn-outline" onclick="navigateTo('edit-material',{productId:${m.id}})">${t('edit')}</button><button class="btn btn-sm btn-danger" onclick="window.deleteMaterial(${m.id})">${t('delete')}</button></div></div><ul>`;
+    html += `<div class="material-card"><div class="material-header"><strong>${sanitize(m.name)}${catName}</strong><div><button class="btn btn-sm btn-outline" onclick="navigateTo('edit-material',{productId:${m.id}})">${t('edit')}</button><button class="btn btn-sm btn-danger" onclick="window.deleteMaterial(${m.id})">${t('delete')}</button></div></div>${m.notes ? `<p style="font-size:14px;opacity:0.7">${sanitize(m.notes)}</p>` : ''}<ul>`;
     m.variants?.forEach(v => {
       const warn = (v.min_quantity > 0 && v.quantity <= v.min_quantity) ? ' ⚠️' : '';
       html += `<li>${sanitize(v.variant_name || 'غير مسمى')} | شراء: ${formatCurrency(v.purchase_price)} | بيع: ${formatCurrency(v.selling_price)} | مخزون: ${v.quantity} ${warn}</li>`;
@@ -196,28 +199,33 @@ async function showMaterials() {
 window.deleteMaterial = async id => { if (!confirm(t('confirmDelete'))) return; await supaCall(() => supabase.from('products').delete().eq('id', id)); await logActivity('delete_material', `ID:${id}`); showToast(t('deleted')); showMaterials(); };
 
 async function exportStockCSV() {
-  const { data: products } = await supaCall(() => supabase.from('products').select('name, categories(name), variants(variant_name, purchase_price, selling_price, quantity, min_quantity)').eq('user_id', currentUserId));
-  const headers = ['المادة', 'التصنيف', 'المتغير', 'سعر الشراء', 'سعر البيع', 'الكمية', 'حد التنبيه'];
+  const { data: products } = await supaCall(() => supabase.from('products').select('name, notes, categories(name), variants(variant_name, purchase_price, selling_price, quantity, min_quantity)').eq('user_id', currentUserId));
+  const headers = ['المادة', 'التصنيف', 'المتغير', 'سعر الشراء', 'سعر البيع', 'الكمية', 'حد التنبيه', 'ملاحظات'];
   const rows = [];
-  products.forEach(p => p.variants?.forEach(v => rows.push([p.name, p.categories?.name||'', v.variant_name, v.purchase_price, v.selling_price, v.quantity, v.min_quantity])));
+  products.forEach(p => p.variants?.forEach(v => rows.push([p.name, p.categories?.name||'', v.variant_name, v.purchase_price, v.selling_price, v.quantity, v.min_quantity, p.notes||''])));
   exportToCSV('المخزون.csv', headers, rows);
 }
 
-// ---- Add/Edit Material ----
 async function showAddMaterialForm() {
   tg.BackButton.show(); tg.MainButton.setText(t('save')); tg.MainButton.show(); tg.MainButton.onClick(saveMaterialWithVariants);
   const { data: categories } = await supaCall(() => supabase.from('categories').select('id, name').eq('user_id', currentUserId).order('name'));
   let catOptions = '<option value="">بدون تصنيف</option>';
   categories?.forEach(c => catOptions += `<option value="${c.id}">${c.name}</option>`);
-  document.getElementById('view').innerHTML = `<div class="card"><h3>${t('addMaterial')}</h3><input id="mname" placeholder="اسم المادة"/><select id="material-category">${catOptions}</select><div id="variants-container"></div><button class="btn btn-outline" id="add-variant-row">+ إضافة متغير</button></div>`;
+  document.getElementById('view').innerHTML = `<div class="card"><h3>${t('addMaterial')}</h3><input id="mname" placeholder="اسم المادة"/><select id="material-category">${catOptions}</select><textarea id="material-notes" placeholder="${t('notes')}"></textarea><div id="variants-container"></div><button class="btn btn-outline" id="add-variant-row">+ إضافة متغير</button></div>`;
   document.getElementById('add-variant-row').addEventListener('click', addVariantRow);
   addVariantRow();
 }
-// ( addVariantRow, saveMaterialWithVariants, showEditMaterialForm, updateMaterial تتبع نفس النمط مع إضافة category_id )
+function addVariantRow() {
+  const row = document.createElement('div'); row.className = 'variant-row';
+  row.innerHTML = `<input placeholder="${t('type')}" class="v-name"/><input type="number" placeholder="${t('purchasePrice')}" class="v-purchase-price"/><input type="number" placeholder="${t('sellingPrice')}" class="v-selling-price"/><input type="number" placeholder="${t('quantity')}" class="v-qty"/><input type="number" placeholder="${t('minAlert')}" class="v-min" value="0"/><button class="btn btn-sm btn-danger remove-variant">X</button>`;
+  row.querySelector('.remove-variant').addEventListener('click', () => row.remove());
+  document.getElementById('variants-container').appendChild(row);
+}
 async function saveMaterialWithVariants() {
   const name = document.getElementById('mname').value.trim();
   if (!name) { showToast(t('fillAllFields'), true); return; }
   const categoryId = document.getElementById('material-category')?.value || null;
+  const notes = document.getElementById('material-notes')?.value?.trim() || '';
   const rows = document.querySelectorAll('.variant-row'); const variants = []; let hasError = false;
   rows.forEach(row => {
     const vname = row.querySelector('.v-name')?.value.trim() || 'بدون اسم';
@@ -230,7 +238,7 @@ async function saveMaterialWithVariants() {
   if (hasError || !variants.length) { showToast(t('fillAllFields'), true); return; }
   tg.MainButton.disable();
   try {
-    const { data: product, error } = await supaCall(() => supabase.from('products').insert({ name, user_id: currentUserId, category_id: categoryId }).select().single());
+    const { data: product, error } = await supaCall(() => supabase.from('products').insert({ name, user_id: currentUserId, category_id: categoryId, notes }).select().single());
     if (error) throw error;
     const varsData = variants.map(v => ({ ...v, product_id: product.id }));
     await supaCall(() => supabase.from('variants').insert(varsData));
@@ -238,7 +246,47 @@ async function saveMaterialWithVariants() {
     showToast(t('saved')); tg.MainButton.hide(); goBack(); showMaterials();
   } catch (err) { showToast(err.message, true); } finally { tg.MainButton.enable(); }
 }
-// showEditMaterialForm و updateMaterial بنفس المنوال، مع جلب category الحالي.
+async function showEditMaterialForm(productId) {
+  tg.BackButton.show(); tg.MainButton.setText(t('save')); tg.MainButton.show(); tg.MainButton.onClick(() => updateMaterial(productId));
+  const { data: product } = await supaCall(() => supabase.from('products').select('*, variants(*)').eq('id', productId).single());
+  const { data: categories } = await supaCall(() => supabase.from('categories').select('id, name').eq('user_id', currentUserId).order('name'));
+  let catOptions = '<option value="">بدون تصنيف</option>';
+  categories?.forEach(c => catOptions += `<option value="${c.id}" ${c.id === product.category_id ? 'selected' : ''}>${c.name}</option>`);
+  document.getElementById('view').innerHTML = `<div class="card"><h3>تعديل ${sanitize(product.name)}</h3><input id="mname" value="${product.name}"/><select id="material-category">${catOptions}</select><textarea id="material-notes">${product.notes||''}</textarea><div id="variants-container"></div><button class="btn btn-outline" id="add-variant-row">+ إضافة متغير</button></div>`;
+  const container = document.getElementById('variants-container');
+  product.variants.forEach(v => {
+    const row = document.createElement('div'); row.className = 'variant-row';
+    row.innerHTML = `<input value="${v.variant_name||''}" class="v-name"/><input type="number" value="${v.purchase_price}" class="v-purchase-price"/><input type="number" value="${v.selling_price}" class="v-selling-price"/><input type="number" value="${v.quantity}" class="v-qty"/><input type="number" value="${v.min_quantity}" class="v-min"/><button class="btn btn-sm btn-danger remove-variant">X</button>`;
+    row.querySelector('.remove-variant').addEventListener('click', () => row.remove());
+    container.appendChild(row);
+  });
+  document.getElementById('add-variant-row').addEventListener('click', addVariantRow);
+}
+async function updateMaterial(productId) {
+  const name = document.getElementById('mname').value.trim();
+  if (!name) { showToast(t('fillAllFields'), true); return; }
+  const categoryId = document.getElementById('material-category')?.value || null;
+  const notes = document.getElementById('material-notes')?.value?.trim() || '';
+  const rows = document.querySelectorAll('.variant-row'); const variants = [];
+  rows.forEach(row => {
+    const vname = row.querySelector('.v-name')?.value.trim() || 'بدون اسم';
+    const purchasePrice = parseFloat(row.querySelector('.v-purchase-price')?.value);
+    const sellingPrice = parseFloat(row.querySelector('.v-selling-price')?.value);
+    const qty = parseInt(row.querySelector('.v-qty')?.value); const minQty = parseInt(row.querySelector('.v-min')?.value) || 0;
+    if (!vname || isNaN(purchasePrice) || isNaN(sellingPrice) || isNaN(qty)) return;
+    variants.push({ variant_name: vname, attributes: {}, purchase_price: purchasePrice, selling_price: sellingPrice, quantity: qty, min_quantity: minQty, user_id: currentUserId });
+  });
+  if (!variants.length) { showToast(t('fillAllFields'), true); return; }
+  tg.MainButton.disable();
+  try {
+    await supaCall(() => supabase.from('products').update({ name, category_id: categoryId, notes }).eq('id', productId));
+    await supaCall(() => supabase.from('variants').delete().eq('product_id', productId));
+    const newVariants = variants.map(v => ({ ...v, product_id: productId }));
+    await supaCall(() => supabase.from('variants').insert(newVariants));
+    await logActivity('update_material', `ID: ${productId}`);
+    showToast(t('saved')); tg.MainButton.hide(); goBack(); showMaterials();
+  } catch (err) { showToast(err.message, true); } finally { tg.MainButton.enable(); }
+}
 // ========== CATEGORIES ==========
 async function showCategories() {
   window.currentRefreshFunction = showCategories; tg.MainButton.hide(); applyBackButton();
@@ -288,7 +336,6 @@ async function showSellForm() {
   ['discount','tax','paid-amount'].forEach(id => document.getElementById(id).addEventListener('input', renderCart));
   renderCart();
 }
-
 async function addToCart() {
   const sel = document.getElementById('prod-select'); const [pid, vid] = sel.value.split('_');
   const qty = parseInt(document.getElementById('cart-qty').value);
@@ -300,7 +347,6 @@ async function addToCart() {
   else cart.push({productId:pid, variantId:vid, name:v.products.name, variantName:v.variant_name, price:v.selling_price, quantity:qty, max:v.quantity});
   renderCart(); showToast('تمت الإضافة');
 }
-
 function renderCart() {
   const tbody = document.querySelector('#cart-table tbody'); if(!tbody) return;
   tbody.innerHTML = ''; let total=0;
@@ -438,7 +484,6 @@ async function showPurchasesHistory() {
   });
   document.getElementById('purchases-subview').innerHTML = html;
 }
-
 async function showAddPurchaseForm() {
   tg.BackButton.show(); tg.MainButton.setText('إتمام الشراء'); tg.MainButton.show(); tg.MainButton.onClick(completePurchase);
   const { data: products } = await supaCall(() => supabase.from('products').select('id, name, variants(id, variant_name)').eq('user_id', currentUserId));
@@ -507,7 +552,7 @@ async function showCustomers() {
   const { data: customers } = await supaCall(() => supabase.from('customers').select('*').eq('user_id', currentUserId).order('name'));
   let html = `<div class="card"><h2>${t('customers')}</h2><input class="search-input" id="search-customers" placeholder="${t('search')}"/><ul>`;
   customers?.forEach(c => html += `<li>${sanitize(c.name)} ${sanitize(c.phone||'')} <button class="btn btn-outline" onclick="window.showEntityPayments('customer',${c.id})">💰 دفعات</button> <button class="btn btn-danger" onclick="window.deleteCustomer(${c.id})">${t('delete')}</button></li>`);
-  html += `</ul><button class="btn" id="add-customer-btn">+ ${t('addMaterial')}</button><button class="btn btn-outline" id="export-customers-btn">📥 ${t('exportCSV')}</button></div>`;
+  html += `</ul><button class="btn" id="add-customer-btn">+ ${t('addCustomer')}</button><button class="btn btn-outline" id="export-customers-btn">📥 ${t('exportCSV')}</button></div>`;
   document.getElementById('view').innerHTML = html;
   document.getElementById('search-customers')?.addEventListener('input', e => {
     const term = e.target.value.toLowerCase();
@@ -520,7 +565,7 @@ window.deleteCustomer = async id => { if(confirm(t('confirmDelete'))) { await su
 
 async function showAddCustomerForm() {
   tg.BackButton.show(); tg.MainButton.setText(t('save')); tg.MainButton.show(); tg.MainButton.onClick(saveCustomer);
-  document.getElementById('view').innerHTML = `<div class="card"><h3>إضافة عميل</h3><input id="cust-name" placeholder="الاسم"/><input id="cust-phone" placeholder="الهاتف"/><textarea id="cust-notes" placeholder="ملاحظات"></textarea></div>`;
+  document.getElementById('view').innerHTML = `<div class="card"><h3>إضافة عميل</h3><input id="cust-name" placeholder="الاسم"/><input id="cust-phone" placeholder="الهاتف"/><textarea id="cust-notes" placeholder="${t('notes')}"></textarea></div>`;
 }
 async function saveCustomer() {
   const name = document.getElementById('cust-name').value.trim();
