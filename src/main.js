@@ -5,7 +5,6 @@ import { setLanguage, toggleLanguage } from './config/i18n.js';
 import { navigateTo, initRouter } from './navigation/router.js';
 import { handleRealtimeUpdate } from './realtime.js';
 
-// انتظر حتى يكون Telegram WebApp جاهزًا
 function waitForTg() {
   return new Promise((resolve) => {
     if (window.tg) return resolve();
@@ -18,9 +17,11 @@ function waitForTg() {
 (async () => {
   const tg = initTelegram();
   window.tg = tg;
-  
-  // تأكد من جاهزية tg
   await waitForTg();
+
+  const viewEl = document.getElementById('view');
+  // عرض حالة تهيئة مؤقتة
+  viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>جاري التحميل...</div>';
 
   const res = await fetch('/api/auth', {
     method: 'POST',
@@ -29,7 +30,7 @@ function waitForTg() {
   });
 
   if (!res.ok) {
-    document.getElementById('view').innerHTML = '<div class="empty-state">❌ فشل المصادقة</div>';
+    viewEl.innerHTML = '<div class="empty-state">❌ فشل المصادقة</div>';
     return;
   }
 
@@ -38,31 +39,40 @@ function waitForTg() {
   await supabase.auth.setSession({ access_token: token, refresh_token: '' });
   setCurrentUserId(userId);
 
-  const { data: rateData } = await supaCall(() =>
-    getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
-  );
-  window.usdRate = parseFloat(rateData?.value) || 15000;
+  // سعر الصرف – نتحمل الفشل
+  try {
+    const { data: rateData } = await supaCall(() =>
+      getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
+    );
+    window.usdRate = parseFloat(rateData?.value) || 15000;
+  } catch (e) {
+    window.usdRate = 15000; // وضع افتراضي
+    console.warn('Failed to load usd_rate, using 15000');
+  }
 
   setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
 
-  getSupabase()
-    .channel('public:variants')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
-    .subscribe();
-  getSupabase()
-    .channel('public:orders')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate)
-    .subscribe();
+  // Realtime
+  try {
+    getSupabase().channel('public:variants')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
+      .subscribe();
+    getSupabase().channel('public:orders')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate)
+      .subscribe();
+  } catch (e) {
+    console.warn('Realtime subscriptions failed', e);
+  }
 
   document.querySelector('[data-view="toggle-lang"]')?.addEventListener('click', () => {
     toggleLanguage();
     if (window.currentRefreshFunction) window.currentRefreshFunction();
   });
 
-  // تأخير استدعاء initRouter قليلاً للتأكد من وجود DOM
+  // تأخير بسيط لضمان تجهيز DOM
   setTimeout(() => {
     initRouter();
-  }, 50);
-
-  navigateTo('products');
+    // استدعاء أولي
+    navigateTo('products');
+  }, 100);
 })();
