@@ -1,40 +1,42 @@
 import './style.css';
 import { initTelegram } from './telegram.js';
+import { initSupabase, setCurrentUserId, getSupabase, supaCall } from './utils/supabase-client.js';
+import { setLanguage, toggleLanguage } from './config/i18n.js';
+import { navigateTo, initRouter } from './navigation/router.js';
+import { handleRealtimeUpdate } from './realtime.js';
 
 (async () => {
   const tg = initTelegram();
   window.tg = tg;
   const viewEl = document.getElementById('view');
-  viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>مرحلة 1: بدء التشغيل</div>';
+  viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>جاري التحميل...</div>';
 
-  // اختبار بسيط: عرض initData
-  if (!tg.initData) {
-    viewEl.innerHTML = '<div class="card" style="color:red;">❌ initData فارغ</div>';
-    return;
-  }
+  try {
+    const res = await fetch('https://tzxjmyfevzdjftzpypjf.supabase.co/functions/v1/telegram-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: tg.initData })
+    });
 
-  viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⏳</div>مرحلة 2: الاتصال بالدالة...</div>';
-
-  // استدعاء الدالة مع عرض النتيجة مباشرة
-  tg.WebApp.request({
-    url: 'https://tzxjmyfevzdjftzpypjf.supabase.co/functions/v1/telegram-auth',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    data: JSON.stringify({ initData: tg.initData })
-  }, (err, res) => {
-    if (err) {
-      viewEl.innerHTML = `<div class="card" style="color:red;">❌ فشل الاتصال بالدالة: ${err}</div>`;
+    if (!res.ok) {
+      viewEl.innerHTML = `<div class="card" style="color:red;">❌ فشل المصادقة (${res.status})</div>`;
       return;
     }
 
-    viewEl.innerHTML = `<div class="card">✅ تم الاتصال بالدالة. الرد: ${res}</div>`;
+    const { token, userId } = await res.json();
 
-    // محاولة تحليل الرد
-    try {
-      const data = JSON.parse(res);
-      viewEl.innerHTML += `<br>الرمز: ${data.token ? 'موجود' : 'مفقود'}`;
-    } catch (e) {
-      viewEl.innerHTML += `<br>❌ فشل تحليل JSON: ${e.message}`;
-    }
-  });
+    const supabase = initSupabase(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
+    await supabase.auth.setSession({ access_token: token, refresh_token: '' });
+    setCurrentUserId(userId);
+
+    window.usdRate = 15000;
+    setLanguage('ar');
+
+    setTimeout(() => {
+      initRouter();
+      navigateTo('products');
+    }, 50);
+  } catch (e) {
+    viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ: ${e.message}</div>`;
+  }
 })();
