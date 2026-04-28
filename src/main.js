@@ -1,15 +1,14 @@
-import './style.css';  // ← هذا السطر أساسي لتطبيق التنسيق
+import './style.css';
 import { initTelegram } from './telegram.js';
 import { initSupabase, setCurrentUserId, getSupabase, supaCall } from './utils/supabase-client.js';
 import { setLanguage, toggleLanguage } from './config/i18n.js';
-import { navigateTo } from './navigation/router.js';
+import { navigateTo, initRouter } from './navigation/router.js';
 import { handleRealtimeUpdate } from './realtime.js';
 
 const tg = initTelegram();
 window.tg = tg;
 
 (async () => {
-  // 1. المصادقة
   const res = await fetch('/api/auth', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -26,29 +25,34 @@ window.tg = tg;
   await supabase.auth.setSession({ access_token: token, refresh_token: '' });
   setCurrentUserId(userId);
 
-  // 2. سعر الصرف
+  // سعر الصرف
   const { data: rateData } = await supaCall(() =>
     getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
   );
   window.usdRate = parseFloat(rateData?.value) || 15000;
 
-  // 3. اللغة
+  // اللغة
   setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
 
-  // 4. Realtime
-  getSupabase().channel('public:variants')
+  // Realtime
+  getSupabase()
+    .channel('public:variants')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
     .subscribe();
-  getSupabase().channel('public:orders')
+  getSupabase()
+    .channel('public:orders')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate)
     .subscribe();
 
-  // 5. زر تبديل اللغة
+  // تبديل اللغة
   document.querySelector('[data-view="toggle-lang"]')?.addEventListener('click', () => {
     toggleLanguage();
     if (window.currentRefreshFunction) window.currentRefreshFunction();
   });
 
-  // 6. تشغيل الواجهة الرئيسية
+  // ** تفعيل أزرار الشريط السفلي **
+  initRouter();
+
+  // الانتقال للواجهة الرئيسية
   navigateTo('products');
 })();

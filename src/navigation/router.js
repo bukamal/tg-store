@@ -7,7 +7,6 @@ import { showCustomers, showAddCustomerForm } from '../views/customers.js';
 import { showCashRegister, showAddCashTransactionForm } from '../views/cash.js';
 import { showExpenses, showAddExpenseForm } from '../views/expenses.js';
 import { showAlerts } from '../views/alerts.js';
-import { toggleLanguage } from '../config/i18n.js';
 
 const tg = window.tg;
 let viewStack = [];
@@ -37,7 +36,6 @@ export function navigateTo(viewName, params) {
     case 'add-cash-transaction': showAddCashTransactionForm(params?.type); break;
     case 'add-purchase': showAddPurchaseForm(); break;
     case 'add-customer': showAddCustomerForm(); break;
-    case 'toggle-lang': toggleLanguage(); navigateTo(currentView); break;
     default: console.warn('Unknown view:', viewName);
   }
 }
@@ -77,5 +75,17 @@ function applyBackButton() {
 }
 
 function setActiveNav(viewName) {
-  document.querySelectorAll('#bottom-nav button').forEach(b => b.classList.toggle('active', b.dataset.view === viewName));
+  document.querySelectorAll('#bottom-nav button').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === viewName);
+  });
+}
+
+// ---- دالة تفعيل ربط الأزرار (ستُستدعى من main.js) ----
+export function initRouter() {
+  document.querySelectorAll('#bottom-nav button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const view = btn.dataset.view;
+      if (view) navigateTo(view);
+    });
+  });
 }
