@@ -14,7 +14,10 @@ import { handleRealtimeUpdate } from './realtime.js';
   try {
     const res = await fetch('https://tzxjmyfevzdjftzpypjf.supabase.co/functions/v1/telegram-auth', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY}`
+      },
       body: JSON.stringify({ initData: tg.initData })
     });
 
