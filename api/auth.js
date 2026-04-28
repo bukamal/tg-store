@@ -1,4 +1,3 @@
 export default async function handler(req, res) {
-  // رد ثابت للاختبار
-  return res.json({ token: 'test-token', userId: '12345678' });
+  return res.status(200).json({ token: 'test-token', userId: '12345678' });
 }
