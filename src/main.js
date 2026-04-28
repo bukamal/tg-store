@@ -11,46 +11,63 @@ import { handleRealtimeUpdate } from './realtime.js';
   const viewEl = document.getElementById('view');
   viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>جاري التحميل...</div>';
 
-  try {
-    const res = await fetch('https://tzxjmyfevzdjftzpypjf.supabase.co/functions/v1/telegram-auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData: tg.initData })
-    });
+  const SUPABASE_FUNCTION_URL = 'https://tzxjmyfevzdjftzpypjf.supabase.co/functions/v1/telegram-auth';
 
-    if (!res.ok) {
-      viewEl.innerHTML = `<div class="card" style="color:red;">❌ فشل المصادقة (${res.status})</div>`;
+  // استخدام tg.WebApp.request للتغلب على قيود fetch في WebView
+  tg.WebApp.request({
+    url: SUPABASE_FUNCTION_URL,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    data: JSON.stringify({ initData: tg.initData })
+  }, async (err, res) => {
+    if (err) {
+      viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ في الاتصال: ${err}</div>`;
       return;
     }
 
-    const { token, userId } = await res.json();
-
-    const supabase = initSupabase(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
-    await supabase.auth.setSession({ access_token: token, refresh_token: '' });
-    setCurrentUserId(userId);
-
     try {
-      const { data: rateData } = await supaCall(() => getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single());
-      window.usdRate = parseFloat(rateData?.value) || 15000;
-    } catch { window.usdRate = 15000; }
+      const { token, userId } = JSON.parse(res);
 
-    setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
+      const supabase = initSupabase(
+        import.meta.env.VITE_SUPABASE_URL,
+        import.meta.env.VITE_SUPABASE_ANON_KEY
+      );
+      await supabase.auth.setSession({ access_token: token, refresh_token: '' });
+      setCurrentUserId(userId);
 
-    try {
-      getSupabase().channel('public:variants').on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate).subscribe();
-      getSupabase().channel('public:orders').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate).subscribe();
-    } catch {}
+      // سعر الصرف
+      try {
+        const { data: rateData } = await supaCall(() =>
+          getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
+        );
+        window.usdRate = parseFloat(rateData?.value) || 15000;
+      } catch { window.usdRate = 15000; }
 
-    document.querySelector('[data-view="toggle-lang"]')?.addEventListener('click', () => {
-      toggleLanguage();
-      if (window.currentRefreshFunction) window.currentRefreshFunction();
-    });
+      setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
 
-    setTimeout(() => {
-      initRouter();
-      navigateTo('products');
-    }, 50);
-  } catch (e) {
-    viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ: ${e.message}</div>`;
-  }
+      // Realtime
+      try {
+        getSupabase().channel('public:variants')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
+          .subscribe();
+        getSupabase().channel('public:orders')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate)
+          .subscribe();
+      } catch {}
+
+      document.querySelector('[data-view="toggle-lang"]')?.addEventListener('click', () => {
+        toggleLanguage();
+        if (window.currentRefreshFunction) window.currentRefreshFunction();
+      });
+
+      // تهيئة الأزرار والانتقال للرئيسية
+      setTimeout(() => {
+        initRouter();
+        navigateTo('products');
+      }, 50);
+
+    } catch (e) {
+      viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ: ${e.message}</div>`;
+    }
+  });
 })();
