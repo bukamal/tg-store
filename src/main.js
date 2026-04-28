@@ -10,41 +10,33 @@ import { navigateTo, initRouter } from './navigation/router.js';
   const viewEl = document.getElementById('view');
   viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>جاري التحميل...</div>';
 
-  try {
-    const res = await fetch('/api/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData: 'test' })
-    });
-    if (!res.ok) {
-      viewEl.innerHTML = `<div class="card" style="color:red;">فشل الاتصال (${res.status})</div>`;
+  // استخدام tg.WebApp.request بدلاً من fetch
+  tg.WebApp.request({
+    url: '/api/auth',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    data: { initData: tg.initData }
+  }, async (err, res) => {
+    if (err) {
+      viewEl.innerHTML = `<div class="card" style="color:red;">فشل الاتصال: ${err}</div>`;
       return;
     }
-    const { token, userId } = await res.json();
-
-    // نبقي Supabase للاختبار (قد يفشل إن لم تكن المتغيرات موجودة لكن لا يهم)
     try {
+      const { token, userId } = JSON.parse(res);
       const supabase = initSupabase(
         import.meta.env.VITE_SUPABASE_URL,
         import.meta.env.VITE_SUPABASE_ANON_KEY
       );
       await supabase.auth.setSession({ access_token: token, refresh_token: '' });
       setCurrentUserId(userId);
+      window.usdRate = 15000;
+      setLanguage('ar');
+      setTimeout(() => {
+        initRouter();
+        navigateTo('products');
+      }, 50);
     } catch (e) {
-      viewEl.innerHTML = `<div class="card" style="color:red;">فشل Supabase: ${e.message}</div>`;
-      return;
+      viewEl.innerHTML = `<div class="card" style="color:red;">خطأ في البيانات: ${e.message}</div>`;
     }
-
-    // سعر صرف ثابت
-    window.usdRate = 15000;
-    setLanguage('ar');
-
-    // تفعيل الواجهة مباشرة
-    setTimeout(() => {
-      initRouter();
-      navigateTo('products');
-    }, 50);
-  } catch (globalError) {
-    viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ: ${globalError.message}</div>`;
-  }
+  });
 })();
