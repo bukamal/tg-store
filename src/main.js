@@ -1,3 +1,4 @@
+import './style.css';  // ← هذا السطر أساسي لتطبيق التنسيق
 import { initTelegram } from './telegram.js';
 import { initSupabase, setCurrentUserId, getSupabase, supaCall } from './utils/supabase-client.js';
 import { setLanguage, toggleLanguage } from './config/i18n.js';
@@ -7,7 +8,6 @@ import { handleRealtimeUpdate } from './realtime.js';
 const tg = initTelegram();
 window.tg = tg;
 
-// بدء التشغيل
 (async () => {
   // 1. المصادقة
   const res = await fetch('/api/auth', {
@@ -22,10 +22,7 @@ window.tg = tg;
   }
 
   const { token, userId } = await res.json();
-  const supabase = initSupabase(
-    import.meta.env.VITE_SUPABASE_URL,
-    import.meta.env.VITE_SUPABASE_ANON_KEY
-  );
+  const supabase = initSupabase(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
   await supabase.auth.setSession({ access_token: token, refresh_token: '' });
   setCurrentUserId(userId);
 
@@ -39,24 +36,19 @@ window.tg = tg;
   setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
 
   // 4. Realtime
-  getSupabase()
-    .channel('public:variants')
+  getSupabase().channel('public:variants')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
     .subscribe();
-
-  getSupabase()
-    .channel('public:orders')
+  getSupabase().channel('public:orders')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate)
     .subscribe();
 
   // 5. زر تبديل اللغة
   document.querySelector('[data-view="toggle-lang"]')?.addEventListener('click', () => {
     toggleLanguage();
-    // إعادة تحميل المشهد الحالي لتطبيق الترجمة
-    const currentRefresh = window.currentRefreshFunction;
-    if (currentRefresh) currentRefresh();
+    if (window.currentRefreshFunction) window.currentRefreshFunction();
   });
 
-  // 6. البداية
+  // 6. تشغيل الواجهة الرئيسية
   navigateTo('products');
 })();
