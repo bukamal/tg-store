@@ -1,0 +1,8 @@
+import { getCurrentView } from './navigation/router.js';
+
+export function handleRealtimeUpdate() {
+  const currentView = getCurrentView();
+  if (['products', 'sell', 'history', 'analytics', 'cash', 'expenses'].includes(currentView)) {
+    if (window.currentRefreshFunction) window.currentRefreshFunction();
+  }
+}
