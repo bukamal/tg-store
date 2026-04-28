@@ -11,21 +11,31 @@ import { handleRealtimeUpdate } from './realtime.js';
   const viewEl = document.getElementById('view');
   viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>جاري التحميل...</div>';
 
-  const API_URL = 'https://tg-store.vercel.app/api/auth'; // الرابط الكامل
+  // الرابط المباشر لدالة Supabase
+  const SUPABASE_FUNCTION_URL = 'https://tzxjmyfevzdjftzpypjf.supabase.co/functions/v1/telegram-auth';
 
-  // دالة مشتركة لمعالجة الرد
-  async function handleAuthResponse(responseData) {
-    const { token, userId } = responseData;
+  // الدالة التي تعالج الرد بعد المصادقة
+  async function onAuthSuccess(token, userId) {
     const supabase = initSupabase(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
     await supabase.auth.setSession({ access_token: token, refresh_token: '' });
     setCurrentUserId(userId);
 
-    window.usdRate = 15000;
+    try {
+      const { data: rateData } = await supaCall(() =>
+        getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
+      );
+      window.usdRate = parseFloat(rateData?.value) || 15000;
+    } catch { window.usdRate = 15000; }
+
     setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
 
     try {
-      getSupabase().channel('public:variants').on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate).subscribe();
-      getSupabase().channel('public:orders').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate).subscribe();
+      getSupabase().channel('public:variants')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
+        .subscribe();
+      getSupabase().channel('public:orders')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate)
+        .subscribe();
     } catch {}
 
     document.querySelector('[data-view="toggle-lang"]')?.addEventListener('click', () => {
@@ -39,12 +49,15 @@ import { handleRealtimeUpdate } from './realtime.js';
     }, 50);
   }
 
-  // محاولة استخدام tg.WebApp.request إذا كنا داخل تيليجرام
+  // استخدام tg.WebApp.request إذا كنا داخل تيليجرام
   if (window.Telegram?.WebApp?.request) {
     tg.WebApp.request({
-      url: API_URL,
+      url: SUPABASE_FUNCTION_URL,
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY}`
+      },
       data: JSON.stringify({ initData: tg.initData })
     }, async (err, res) => {
       if (err) {
@@ -52,26 +65,29 @@ import { handleRealtimeUpdate } from './realtime.js';
         return;
       }
       try {
-        const data = JSON.parse(res);
-        await handleAuthResponse(data);
+        const { token, userId } = JSON.parse(res);
+        await onAuthSuccess(token, userId);
       } catch (e) {
         viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ في الرد: ${e.message}</div>`;
       }
     });
   } else {
-    // بيئة المتصفح العادي: نستخدم fetch
+    // بيئة المتصفح العادي: نستخدم fetch مع الرابط المباشر (لن يفيد هنا لكن نبقيه للاختبار)
     try {
-      const res = await fetch(API_URL, {
+      const res = await fetch(SUPABASE_FUNCTION_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY}`
+        },
         body: JSON.stringify({ initData: tg.initData || 'test' })
       });
       if (!res.ok) {
         viewEl.innerHTML = `<div class="card" style="color:red;">❌ فشل المصادقة (${res.status})</div>`;
         return;
       }
-      const data = await res.json();
-      await handleAuthResponse(data);
+      const { token, userId } = await res.json();
+      await onAuthSuccess(token, userId);
     } catch (e) {
       viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ fetch: ${e.message}</div>`;
     }
