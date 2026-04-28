@@ -35,7 +35,6 @@ export async function showProducts() {
     document.getElementById('export-stock-btn').addEventListener('click', exportStockCSV);
   } catch (e) {
     document.getElementById('view').innerHTML = `<div class="card" style="background:#fff3cd; color:#856404; padding:20px;"><strong>⚠️ خطأ في تحميل الأصناف</strong><br>${e.message}</div>`;
-    console.error(e);
   }
 }
 

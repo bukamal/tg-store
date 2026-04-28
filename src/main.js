@@ -25,17 +25,45 @@ import { handleRealtimeUpdate } from './realtime.js';
 
     const { token, userId } = await res.json();
 
-    const supabase = initSupabase(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
+    const supabase = initSupabase(
+      import.meta.env.VITE_SUPABASE_URL,
+      import.meta.env.VITE_SUPABASE_ANON_KEY
+    );
     await supabase.auth.setSession({ access_token: token, refresh_token: '' });
     setCurrentUserId(userId);
 
-    window.usdRate = 15000;
-    setLanguage('ar');
+    // سعر الصرف
+    try {
+      const { data: rateData } = await supaCall(() =>
+        getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
+      );
+      window.usdRate = parseFloat(rateData?.value) || 15000;
+    } catch { window.usdRate = 15000; }
 
+    // اللغة
+    setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
+
+    // Realtime
+    try {
+      getSupabase().channel('public:variants')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
+        .subscribe();
+      getSupabase().channel('public:orders')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, handleRealtimeUpdate)
+        .subscribe();
+    } catch {}
+
+    document.querySelector('[data-view="toggle-lang"]')?.addEventListener('click', () => {
+      toggleLanguage();
+      if (window.currentRefreshFunction) window.currentRefreshFunction();
+    });
+
+    // تهيئة الأزرار والانتقال للقائمة الرئيسية
     setTimeout(() => {
       initRouter();
       navigateTo('products');
     }, 50);
+
   } catch (e) {
     viewEl.innerHTML = `<div class="card" style="color:red;">⚠️ خطأ: ${e.message}</div>`;
   }
