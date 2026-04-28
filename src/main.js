@@ -22,21 +22,35 @@ function waitForTg() {
   const viewEl = document.getElementById('view');
   viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>جاري التحميل...</div>';
 
-  const res = await fetch('/api/auth', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ initData: tg.initData })
-  });
+  let token, userId;
+  try {
+    const res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: tg.initData })
+    });
 
-  if (!res.ok) {
-    viewEl.innerHTML = '<div class="empty-state">❌ فشل المصادقة</div>';
+    if (!res.ok) {
+      viewEl.innerHTML = '<div class="empty-state">❌ فشل المصادقة</div>';
+      return;
+    }
+
+    const data = await res.json();
+    token = data.token;
+    userId = data.userId;
+  } catch (e) {
+    viewEl.innerHTML = `<div class="card" style="color:red;">فشل الاتصال بالخادم: ${e.message}</div>`;
     return;
   }
 
-  const { token, userId } = await res.json();
-  const supabase = initSupabase(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
-  await supabase.auth.setSession({ access_token: token, refresh_token: '' });
-  setCurrentUserId(userId);
+  try {
+    const supabase = initSupabase(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
+    await supabase.auth.setSession({ access_token: token, refresh_token: '' });
+    setCurrentUserId(userId);
+  } catch (e) {
+    viewEl.innerHTML = `<div class="card" style="color:red;">فشل تهيئة Supabase: ${e.message}</div>`;
+    return;
+  }
 
   try {
     const { data: rateData } = await supaCall(() =>
