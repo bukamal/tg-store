@@ -11,16 +11,7 @@ import { handleRealtimeUpdate } from './realtime.js';
   const viewEl = document.getElementById('view');
   viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>جاري التحميل...</div>';
 
-  // رابط دالة Supabase
-  const SUPABASE_FUNCTION_URL = 'https://tzxjmyfevzdjftzpypjf.supabase.co/functions/v1/telegram-auth';
-  const SERVICE_ROLE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!SERVICE_ROLE_KEY) {
-    viewEl.innerHTML = '<div class="card" style="color:red;">❌ مفتاح الخدمة غير مضبوط</div>';
-    return;
-  }
-
-  // دالة معالجة بعد نجاح المصادقة
+  // الوظيفة التي تكمل الإعداد بعد المصادقة الناجحة
   async function onAuthSuccess(token, userId) {
     const supabase = initSupabase(
       import.meta.env.VITE_SUPABASE_URL,
@@ -29,6 +20,7 @@ import { handleRealtimeUpdate } from './realtime.js';
     await supabase.auth.setSession({ access_token: token, refresh_token: '' });
     setCurrentUserId(userId);
 
+    // سعر الصرف
     try {
       const { data: rateData } = await supaCall(() =>
         getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
@@ -38,6 +30,7 @@ import { handleRealtimeUpdate } from './realtime.js';
 
     setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
 
+    // Realtime (اختياري)
     try {
       getSupabase().channel('public:variants')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
@@ -52,22 +45,22 @@ import { handleRealtimeUpdate } from './realtime.js';
       if (window.currentRefreshFunction) window.currentRefreshFunction();
     });
 
+    // تفعيل الأزرار وعرض المنتجات
     setTimeout(() => {
       initRouter();
       navigateTo('products');
     }, 50);
   }
 
-  // اختيار الطريقة بناءً على البيئة
+  // تنفيذ المصادقة عبر الرابط النسبي (يعمل داخل Vercel و Telegram)
+  const authUrl = '/api/auth';
+
   if (window.Telegram?.WebApp?.request) {
-    // داخل تيليجرام: نستخدم tg.WebApp.request
+    // داخل تيليجرام: نستخدم tg.WebApp.request (يتجاوز قيود CORS)
     tg.WebApp.request({
-      url: SUPABASE_FUNCTION_URL,
+      url: authUrl,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SERVICE_ROLE_KEY}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       data: JSON.stringify({ initData: tg.initData })
     }, async (err, res) => {
       if (err) {
@@ -82,14 +75,11 @@ import { handleRealtimeUpdate } from './realtime.js';
       }
     });
   } else {
-    // بيئة المتصفح العادي: ستستخدم fetch (قد تحتاج إلى تعطيل CORS مؤقتًا للاختبار، لكن التطبيق في الإنتاج يعمل عبر WebView)
+    // بيئة المتصفح العادي: نستخدم fetch
     try {
-      const res = await fetch(SUPABASE_FUNCTION_URL, {
+      const res = await fetch(authUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${SERVICE_ROLE_KEY}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ initData: tg.initData || 'test' })
       });
       if (!res.ok) {
