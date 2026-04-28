@@ -1,12 +1,11 @@
 export default async function handler(req, res) {
-  // السماح فقط بـ POST
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
   try {
     const { initData } = req.body;
     if (!initData) return res.status(400).json({ error: 'Missing initData' });
 
-    // استدعاء دالة Supabase الخلفية مع إرسال مفتاح الخدمة
+    // استدعاء دالة Supabase
     const response = await fetch(
       'https://tzxjmyfevzdjftzpypjf.supabase.co/functions/v1/telegram-auth',
       {
