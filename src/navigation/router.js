@@ -40,16 +40,55 @@ export function navigateTo(viewName, params) {
       default: console.warn('Unknown view:', viewName);
     }
   } catch (error) {
-    document.getElementById('view').innerHTML = `<div class="card"><p style="color:red;">⚠️ خطأ في التطبيق:<br>${error.message}</p></div>`;
+    document.getElementById('view').innerHTML = `<div class="card"><p style="color:red;">⚠️ خطأ: ${error.message}</p></div>`;
     console.error(error);
   }
 }
 
-export function goBack() { /* ... كما سبق دون تغيير ... */ }
+export function goBack() {
+  if (viewStack.length === 0) { navigateTo('products'); return; }
+  const prev = viewStack.pop();
+  currentView = prev.name;
+  window.currentViewParams = prev.params;
+  setActiveNav(currentView);
+  applyBackButton();
+  try {
+    switch (currentView) {
+      case 'products': showProducts(); break;
+      case 'sell': showSellForm(); break;
+      case 'history': showHistory(); break;
+      case 'analytics': showAnalytics(); break;
+      case 'purchases': showPurchases(); break;
+      case 'customers': showCustomers(); break;
+      case 'cash': showCashRegister(); break;
+      case 'expenses': showExpenses(); break;
+      case 'alerts': showAlerts(); break;
+      case 'add-product': showAddProductForm(); break;
+      case 'edit-product': showEditProductForm(window.currentViewParams?.productId); break;
+      case 'add-expense': showAddExpenseForm(); break;
+      case 'add-cash-transaction': showAddCashTransactionForm(window.currentViewParams?.type); break;
+      case 'add-purchase': showAddPurchaseForm(); break;
+      case 'add-customer': showAddCustomerForm(); break;
+      default: navigateTo('products');
+    }
+  } catch (error) {
+    document.getElementById('view').innerHTML = `<div class="card"><p style="color:red;">⚠️ خطأ: ${error.message}</p></div>`;
+    console.error(error);
+  }
+}
 window.goBack = goBack;
 
-function applyBackButton() { /* كما سبق */ }
-function setActiveNav(viewName) { /* كما سبق */ }
+function applyBackButton() {
+  const mainViews = ['products', 'sell', 'history', 'analytics', 'purchases', 'customers', 'cash', 'expenses', 'alerts'];
+  if (!mainViews.includes(currentView) || viewStack.length > 0) tg.BackButton.show();
+  else tg.BackButton.hide();
+}
+
+function setActiveNav(viewName) {
+  document.querySelectorAll('#bottom-nav button').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === viewName);
+  });
+}
 
 export function initRouter() {
   document.querySelectorAll('#bottom-nav button').forEach(btn => {
