@@ -12,7 +12,6 @@ import { handleRealtimeUpdate } from './realtime.js';
   viewEl.innerHTML = '<div class="empty-state"><div class="emoji">⚡</div>جاري التحميل...</div>';
 
   try {
-    // استدعاء الدالة للحصول على JWT حقيقي
     const res = await fetch('https://tzxjmyfevzdjftzpypjf.supabase.co/functions/v1/telegram-auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -26,7 +25,6 @@ import { handleRealtimeUpdate } from './realtime.js';
 
     const { token, userId } = await res.json();
 
-    // تهيئة Supabase بالتوكن الحقيقي
     const supabase = initSupabase(
       import.meta.env.VITE_SUPABASE_URL,
       import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -34,7 +32,6 @@ import { handleRealtimeUpdate } from './realtime.js';
     await supabase.auth.setSession({ access_token: token, refresh_token: '' });
     setCurrentUserId(userId);
 
-    // سعر الصرف
     try {
       const { data: rateData } = await supaCall(() =>
         getSupabase().from('bot_settings').select('value').eq('key', 'usd_rate').single()
@@ -44,7 +41,6 @@ import { handleRealtimeUpdate } from './realtime.js';
 
     setLanguage(tg.initDataUnsafe?.user?.language_code?.startsWith('ar') ? 'ar' : 'en');
 
-    // Realtime
     try {
       getSupabase().channel('public:variants')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'variants' }, handleRealtimeUpdate)
